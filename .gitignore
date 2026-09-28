@@ -1,0 +1,34 @@
+# Local user ROMs and all ROM-derived artifacts (never published)
+/local/
+/experiments/phase1_static_dk/local_output/
+/experiments/phase1_static_dk/.deps/
+__pycache__/
+.pytest_cache/
+/.venv/
+
+# Third-party reference clones (own git histories)
+/upstream/
+
+# Development material kept on the author's PC only (tests, research notes, probes, tools)
+/tests/
+/research/
+/HANDOVER*.md
+/experiments/phase1_static_dk/*
+!/experiments/phase1_static_dk/compose_direct_pose.py
+!/experiments/phase1_static_dk/dk_adjustment.py
+!/experiments/phase1_static_dk/dk_anim_code_table.py
+!/experiments/phase1_static_dk/dk_animation_names.py
+!/experiments/phase1_static_dk/dk_animation_timeline.py
+!/experiments/phase1_static_dk/dk_control_states.py
+!/experiments/phase1_static_dk/dk_pose_to_gltf.py
+!/experiments/phase1_static_dk/dk_skeleton.py
+!/experiments/phase1_static_dk/dk_table11_animation_census.py
+!/experiments/phase1_static_dk/dk_texgen.py
+!/experiments/phase1_static_dk/entry4_completed_root.py
+!/experiments/phase1_static_dk/entry4_playback_timing.py
+!/experiments/phase1_static_dk/entry4_rootmotion_preview.py
+!/experiments/phase1_static_dk/reconstruct_direct_pose.py
+!/experiments/phase1_static_dk/reproduce_unk0_reader.py
+!/experiments/phase1_static_dk/retime_entry4_preview.py
+!/experiments/phase1_static_dk/static_dk.py
+!/experiments/phase1_static_dk/trace_one_bone.py
