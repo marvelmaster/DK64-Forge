@@ -15,27 +15,27 @@ import math
 from pathlib import Path
 import struct
 
-from compose_direct_pose import compose_direct_hierarchy, identity_root_words
-from entry4_completed_root import reconstruct_parent_root_words
-from entry4_playback_timing import (
+from .pose_compose import compose_direct_hierarchy, identity_root_words
+from .root_completion import reconstruct_parent_root_words
+from .entry4_timing import (
     ENTRY4_DIAGNOSTIC_UNITS_PER_SECOND,
     adjusted_time_to_seconds,
 )
-from dk_animation_timeline import entry4_cursor_for_observed_state
-from dk_pose_to_gltf import (JointTRS, compact_local_to_gltf_matrix,
+from .animation_timeline import entry4_cursor_for_observed_state
+from .pose_gltf import (JointTRS, compact_local_to_gltf_matrix,
                              decompose_joint_local)
-from dk_skeleton import (multiply_mat4, parse_actor_skeleton,
+from .skeleton import (multiply_mat4, parse_actor_skeleton,
                          validate_skinned_gltf)
-from reconstruct_direct_pose import reconstruct_direct_local_pose_unadjusted
-from reproduce_unk0_reader import reproduce_asset
-from static_dk import extract_entry, normalize_rom, parse_actor
-from trace_one_bone import source_quarter_table_words
+from .pose_reconstruct import reconstruct_direct_local_pose_unadjusted
+from .animation_reader import reproduce_asset
+from .rom_model import extract_entry, normalize_rom, parse_actor
+from .bone_matrix import source_quarter_table_words
 
 
-ROOT = Path(__file__).resolve().parent
-ROM = ROOT.parents[1] / "local" / "roms" / "dk64_us.n64"
+ROOT = Path(__file__).resolve().parents[2]  # repository root
+ROM = ROOT / "local" / "roms" / "dk64_us.n64"
 ACTOR_ASSET = ROOT / "local_output" / "canonical_idle" / "dk_actor_table5_entry3.bin"
-ASSEMBLY = ROOT.parents[1] / "upstream" / "dk64_decomp" / "src" / "global_asm" / "code_1E2D0.s"
+ASSEMBLY = ROOT / "upstream" / "dk64_decomp" / "src" / "global_asm" / "code_1E2D0.s"
 OUTPUT = ROOT / "local_output" / "canonical_idle" / "dk_entry4_rootmotion_diagnostic.gltf"
 SOURCE_SKIN = ROOT / "local_output" / "canonical_idle" / "dk_skeleton_bind.gltf"
 ENTRY4_SHA256 = "3e82d9306c051926c64669222eb6dcb26884132d346312d52f51c975777a060a"

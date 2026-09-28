@@ -278,8 +278,8 @@ def reconstruct_direct_local_roots(
     quarter_table: tuple[int, ...],
 ) -> None:
     """Attach exact captured-cursor unadjusted local bone-0 matrices in place."""
-    from reconstruct_direct_pose import reconstruct_direct_local_pose_unadjusted
-    from reproduce_unk0_reader import reproduce_asset
+    from .pose_reconstruct import reconstruct_direct_local_pose_unadjusted
+    from .animation_reader import reproduce_asset
 
     for sample in fixture["samples"]:
         if sample["route"] != "direct-factors":

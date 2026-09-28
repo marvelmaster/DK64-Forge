@@ -15,8 +15,8 @@ import json
 from pathlib import Path
 import re
 
-import dk_anim_code_table as anim_code
-import static_dk
+from . import anim_code_table as anim_code
+from . import rom_model
 
 # Hand-checked meanings. Evidence: the DK player gait selector
 # code_CEAE0.c:1179 func_806CD9A0 (speed vs. thresholds D_80753170 < D_807531A8
@@ -124,9 +124,9 @@ CHARACTER_LABELS = {
     },
 }
 
-HERE = Path(__file__).resolve().parent
-DECOMP_SRC = HERE.parents[1] / "upstream" / "dk64_decomp" / "src"
-DEFAULT_OUT = HERE / "local_output" / "dk_animation_names.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DECOMP_SRC = REPO_ROOT / "upstream" / "dk64_decomp" / "src"
+DEFAULT_OUT = REPO_ROOT / "local_output" / "animation_labels.json"
 
 CALL = re.compile(r"\b(playAnimation|func_global_asm_806(?:13C48|13CA8|14014|13AF8|13BA0|13FB0))"
                   r"\(\s*([^,]+?)\s*,\s*(0x[0-9A-Fa-f]+|\d+)\s*[,)]")
@@ -255,8 +255,8 @@ def main() -> int:
     parser.add_argument("rom", type=Path)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = parser.parse_args()
-    rom, _ = static_dk.identify_rom(args.rom)
-    table = anim_code.parse_anim_code(static_dk.extract_entry(rom, table_id=13, index=0)[0])
+    rom, _ = rom_model.identify_rom(args.rom)
+    table = anim_code.parse_anim_code(rom_model.extract_entry(rom, table_id=13, index=0)[0])
     names = build_names(table, call_sites())
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps({"column": "DK", "clips": {f"{k:#06x}": v for k, v in names.items()}},

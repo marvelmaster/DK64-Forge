@@ -106,10 +106,10 @@ class PreviewScene:
             return None
         normals = self.posed_normals if self.posed_normals is not None else self.bind_normals
         camera = {"eye": tuple(eye), "at": tuple(at), "up": tuple(up)}
-        right, new_up, _ = static_dk.dk_texgen.lookat_basis(eye, at, up)
+        right, new_up, _ = static_dk.texgen.lookat_basis(eye, at, up)
         d = np.clip(np.stack((normals @ right, normals @ new_up), axis=-1), -1.0, 1.0)
-        base = np.where(tg.linear[:, None], np.arccos(-d) * static_dk.dk_texgen.TEXGEN_LINEAR_SCALE,
-                        (d + 1.0) * static_dk.dk_texgen.TEXGEN_RANGE)
+        base = np.where(tg.linear[:, None], np.arccos(-d) * static_dk.texgen.TEXGEN_LINEAR_SCALE,
+                        (d + 1.0) * static_dk.texgen.TEXGEN_RANGE)
         st = _shift_texels(base * tg.scale / 65536.0, tg.shift)
         image = tg.image_size if tg.image_size is not None else tg.size
         upper_left = tg.upper_left.astype(np.float64).copy()

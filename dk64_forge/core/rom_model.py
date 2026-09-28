@@ -20,10 +20,11 @@ from pathlib import Path
 
 import numpy as np
 
-import dk_texgen
+from . import texgen
 
 
-LOCAL_OUTPUT = Path(__file__).resolve().parent / "local_output"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LOCAL_OUTPUT = REPO_ROOT / "local_output"
 EXPECTED_SIZE = 0x2000000
 EXPECTED_XXH3 = 0x4D876060F09B3FC5
 POINTER_BASE = 0x101C50
@@ -193,7 +194,7 @@ def normalize_rom(raw: bytes) -> tuple[bytes, str]:
 def identify_rom(path: Path) -> tuple[bytes, dict]:
     raw = path.read_bytes()
     rom, byte_order = normalize_rom(raw)
-    sys.path.insert(0, str(Path(__file__).parent / ".deps"))
+    sys.path.insert(0, str(REPO_ROOT / ".deps"))
     try:
         import xxhash
     except ImportError as exc:
@@ -841,15 +842,15 @@ def with_hilite_origin(use: TextureUse, camera: dict = TEXGEN_BAKE_CAMERA) -> Te
 
 
 def dk64_hilite_upper_left(camera: dict, width: int, height: int) -> tuple[int, int]:
-    return dk_texgen.hilite_upper_left(camera["eye"], camera["at"], camera["up"],
+    return texgen.hilite_upper_left(camera["eye"], camera["at"], camera["up"],
                                        HILITE_LIGHTS[0], width, height)
 
 
 def texgen_uv(normal: tuple[float, float, float], use: TextureUse, linear: bool,
               camera: dict = TEXGEN_BAKE_CAMERA) -> tuple[float, float]:
     """Spherical/linear G_TEXTURE_GEN UV for one world-space normal and camera."""
-    right, up, _ = dk_texgen.lookat_basis(camera["eye"], camera["at"], camera["up"])
-    s, t = dk_texgen.texgen_texels(np.asarray([normal], dtype=np.float64), right, up,
+    right, up, _ = texgen.lookat_basis(camera["eye"], camera["at"], camera["up"])
+    s, t = texgen.texgen_texels(np.asarray([normal], dtype=np.float64), right, up,
                                    use.scale_s, use.scale_t, linear)[0]
     return tile_texels_to_uv(float(s), float(t), use)
 

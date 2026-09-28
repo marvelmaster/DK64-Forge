@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import struct
 
-from reconstruct_direct_pose import DirectBonePose
+from .pose_reconstruct import DirectBonePose
 
 
 def _f32(value: float) -> float:

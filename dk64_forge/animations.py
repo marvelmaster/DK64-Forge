@@ -18,8 +18,8 @@ from . import pipeline
 from .characters import DK, CharacterSpec
 
 
-CENSUS_PATH = (Path(__file__).resolve().parents[1] / "experiments" /
-               "phase1_static_dk" / "local_output" / "dk_table11_animation_census.json")
+CENSUS_PATH = (Path(__file__).resolve().parents[1] / "local_output" /
+               "dk_table11_animation_census.json")
 # Runtime-observed on the identity-locked DK Actor/AAS capture.
 DK_OWNERSHIP_RUNTIME_IDS = frozenset((0, 1, 2, 3, 4, 0x17))
 DK_OWNED_IDS = DK_OWNERSHIP_RUNTIME_IDS  # historical name

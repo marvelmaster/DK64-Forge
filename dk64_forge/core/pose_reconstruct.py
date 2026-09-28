@@ -13,8 +13,8 @@ import json
 import re
 import struct
 
-from dk_adjustment import apply_master_adjustments, parse_adjustment_records
-from trace_one_bone import MATRIX_OFFSETS, bone_local_matrix_bits
+from .adjustment import apply_master_adjustments, parse_adjustment_records
+from .bone_matrix import MATRIX_OFFSETS, bone_local_matrix_bits
 
 
 @dataclass(frozen=True)

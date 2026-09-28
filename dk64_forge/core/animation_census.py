@@ -16,24 +16,21 @@ import re
 import struct
 import sys
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
+ROOT = Path(__file__).resolve().parents[2]
 
-from dk_animation_timeline import entry4_cursor_candidate
-from dk_pose_to_gltf import compact_local_to_gltf_matrix, decompose_joint_local
-from dk_skeleton import parse_actor_skeleton
-from entry4_rootmotion_preview import ENTRY4_SHA256
-from reproduce_unk0_reader import reproduce_asset
-from reconstruct_direct_pose import reconstruct_direct_local_pose_unadjusted
-from static_dk import (EXPECTED_SIZE, POINTER_BASE, ModelError, be32,
+from .animation_timeline import entry4_cursor_candidate
+from .pose_gltf import compact_local_to_gltf_matrix, decompose_joint_local
+from .skeleton import parse_actor_skeleton
+from .entry4_preview import ENTRY4_SHA256
+from .animation_reader import reproduce_asset
+from .pose_reconstruct import reconstruct_direct_local_pose_unadjusted
+from .rom_model import (EXPECTED_SIZE, POINTER_BASE, ModelError, be32,
                        decode_actor_mesh, extract_entry, normalize_rom, parse_actor)
-from trace_one_bone import quarter_table_words_from_rom
+from .bone_matrix import quarter_table_words_from_rom
 
 
 DEFAULT_ROM = ROOT / "local" / "roms" / "dk64_us.n64"
-DEFAULT_OUTPUT = HERE / "local_output" / "dk_table11_animation_census.json"
+DEFAULT_OUTPUT = ROOT / "local_output" / "dk_table11_animation_census.json"
 EXPECTED_NORMALIZED_SHA256 = "b6347d9f1f75d38a88d829b4f80b1acf0d93344170a5fbe9546c484dae416ce3"
 HISTORICAL_RUNTIME_IDS = {0, 1, 2, 3, 4, 9, 0x17, 0x3E, 0x3F, 0x41}
 PLAYER_CALL = re.compile(

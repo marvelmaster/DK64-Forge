@@ -7,14 +7,14 @@ import json
 from pathlib import Path
 import struct
 
-from entry4_playback_timing import (
+from .entry4_timing import (
     ENTRY4_DIAGNOSTIC_UNITS_PER_SECOND,
     adjusted_time_to_seconds,
 )
-from entry4_rootmotion_preview import validate_experimental_animation_gltf
+from .entry4_preview import validate_experimental_animation_gltf
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]  # repository root
 DEFAULT_SOURCE = ROOT / "local_output" / "canonical_idle" / \
     "dk_entry4_rootmotion_diagnostic_fullsafe.gltf"
 DEFAULT_OUTPUT = ROOT / "local_output" / "canonical_idle" / \

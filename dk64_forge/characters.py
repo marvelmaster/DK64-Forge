@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-LOCAL_OUTPUT = (Path(__file__).resolve().parents[1] / "experiments" /
-                "phase1_static_dk" / "local_output")
+LOCAL_OUTPUT = Path(__file__).resolve().parents[1] / "local_output"
 
 
 @dataclass(frozen=True)

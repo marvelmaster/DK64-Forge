@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from static_dk import Actor, Mesh, ModelError, need
+from .rom_model import Actor, Mesh, ModelError, need
 
 
 @dataclass(frozen=True)

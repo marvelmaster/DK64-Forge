@@ -27,7 +27,7 @@ python -m venv .venv
 ```
 
 The first time you open each Kong, the app scans the ROM's animation table and caches a small
-result file in `experiments/phase1_static_dk/local_output/` (local, ROM-derived, never uploaded).
+result file in `local_output/` (local, ROM-derived, never uploaded).
 Nothing else needs to be downloaded or set up.
 
 ## Using the app
@@ -47,6 +47,14 @@ Nothing else needs to be downloaded or set up.
 | Tiny Kong | 39 | 744 | 165 | 95 | 68 |
 | Chunky Kong | 23 | 699 | 184 | 98 | 76 |
 | Lanky Kong | 21 | 704 | 171 | 92 | 66 |
+
+## Project layout
+
+- `dk64_forge/` – the application (window, viewport, export, ROM session).
+- `dk64_forge/core/` – the DK64 core: ROM tables and decoding (`rom_model`), textures/hilite (`texgen`),
+  skeleton, animation tables, census and labels, pose reconstruction and the Entry-4 reference clip.
+  See `dk64_forge/core/__init__.py` for the module list.
+- `start_forge.bat`, `requirements.txt` – launcher and dependencies.
 
 ## Limitations
 
