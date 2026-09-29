@@ -5,14 +5,17 @@ playable Kongs (Donkey Kong, Diddy, Tiny, Chunky and Lanky) of Donkey Kong 64
 US revision 0. It shows the textured, skinned model, plays the character's
 animations and exports static or animated glTF (opens in Blender).
 
-**No ROM and no game asset is included.** You need your own legally obtained
+![DK64 Forge showing Chunky Kong's walk animation](docs/screenshot.png)
+
+*The screenshot shows the program's output for illustration.* **No ROM and no game data file is included.** You need your own legally obtained
 Donkey Kong 64 US revision 0 ROM. It is read locally and never modified or
 uploaded.
 
 ## Run it (Windows)
 
 1. Install [Python 3.12 or newer](https://www.python.org/downloads/) (tick "Add python.exe to PATH").
-2. Download or clone this repository.
+2. Download this repository as a ZIP (green **Code** button → **Download ZIP**) and unpack it, or clone it:
+   `git clone https://github.com/marvelmaster/DK64-Forge`
 3. Double-click `start_forge.bat`. On the first run it creates a `.venv` and installs
    `PySide6`, `PyOpenGL` and `numpy` from `requirements.txt`; afterwards it just starts the app.
 4. In the app choose **File → Load ROM** and select your Donkey Kong 64 US ROM
