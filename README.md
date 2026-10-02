@@ -45,7 +45,7 @@ Nothing else needs to be downloaded or set up.
   (0.1x–5.0x) scales both. **Mark Current as Reference** / **Go to Reference** jump back to a clip.
 - **Viewport Debug** shows the selected joint's parent, current position, rest offset and the
   geometry it moves; the browser shows the root (bone 0) translation of the current frame.
-- Start directly with a ROM: `.venv\Scripts\python.exe -m dk64_forge --rom path	oom.z64`.
+- Start directly with a ROM: `.venv\Scripts\python.exe -m dk64_forge --rom C:\path\to\rom.z64`.
 - **File → Export** writes the model, the current animation only (joints + clip, no mesh), or
   model plus animation as glTF. Keep the `.gltf`, `.bin` and any
   `textures/` folder together.
