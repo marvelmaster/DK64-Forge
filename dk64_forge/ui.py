@@ -32,10 +32,11 @@ TIMING_TECHNICAL = "technical"
 GAME_UNITS_PER_SECOND = 30.0
 MIN_SPEED_TICK, MAX_SPEED_TICK = 1, 50  # Movement / Speed 0.1 .. 5.0
 
-from .characters import CHARACTERS
+from .characters import CHARACTERS, VARIANT_NORMAL, variants_for
 from .debug_view import DEFAULT_VIEW_MODE, ViewMode
 from .export import ExportKind, export_gltf
 from .preview_data import PreviewScene
+from .audio_tab import AudioTab
 from .model_browser import KIND_ACTOR, KIND_MAP, KIND_PROP, ModelBrowserTab
 from .texture_tab import TextureTab
 from .session import (CHARACTER, RomParseError, RomReadError,
@@ -88,9 +89,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.source = source
         self.preview = preview
-        # Keyed by (character key, Table-11 id); the initial scene is that character's default clip.
-        self._preview_cache: OrderedDict[tuple[str, int], PreviewScene] = OrderedDict(
-            (((source.character.key, source.character.default_animation), preview),))
+        # Keyed by (character key, model variant, Table-11 id); starts with the default clip.
+        self._preview_cache: OrderedDict[tuple[str, str, int], PreviewScene] = OrderedDict(
+            (((source.character.key, source.character.variant, source.character.default_animation), preview),))
         self._selected_animation_id: int | None = None
         self._on_rom_selected = on_rom_selected
         self._playing = False
@@ -127,6 +128,8 @@ class MainWindow(QMainWindow):
         for tab, label in ((self.models_tab, "Models"), (self.levels_tab, "Levels")):
             tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
             self.tabs.addTab(tab, label)
+        self.audio_tab = AudioTab(source.normalized)
+        self.tabs.addTab(self.audio_tab, "Audio")
         self.texture_tab = TextureTab(source.normalized)
         self.texture_tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
         self.tabs.addTab(self.texture_tab, "Textures")
@@ -182,6 +185,11 @@ class MainWindow(QMainWindow):
         self.character_combo.setCurrentIndex(
             list(CHARACTERS).index(self.source.character.key))
         layout.addWidget(self.character_combo)
+        self.variant_combo = QComboBox()
+        self.variant_combo.setToolTip("Weapon drawn: the hand-state bits the game sets when the Kong pulls "
+                                      "out its weapon. With instrument: the Kong's instrument model.")
+        self._fill_variant_combo()
+        layout.addWidget(self.variant_combo)
         form = QFormLayout()
         self.model_name_value = QLabel()
         self.model_prop_value = QLabel()
@@ -338,6 +346,7 @@ class MainWindow(QMainWindow):
 
         self.animation_combo.currentIndexChanged.connect(self._select_animation)
         self.character_combo.currentIndexChanged.connect(self._select_character)
+        self.variant_combo.currentIndexChanged.connect(self._select_variant)
         self.previous_button.clicked.connect(lambda _checked=False: self._navigate_animation(-1))
         self.next_button.clicked.connect(lambda _checked=False: self._navigate_animation(1))
         self.play_button.clicked.connect(self._toggle_playback)
@@ -366,7 +375,7 @@ class MainWindow(QMainWindow):
     def _apply_character_info(self) -> None:
         """Model info, joint list and filter text for the active character."""
         spec = self.source.character
-        self.model_name_value.setText(spec.name)
+        self.model_name_value.setText(spec.display_name)
         self.model_prop_value.setText(f"Model {spec.model_id} · table 5 / {spec.table5_entry}")
         self.model_source_vertices_value.setText(str(spec.vertices))
         self.model_render_vertices_value.setText(str(len(self.preview.render_data.positions)))
@@ -390,26 +399,38 @@ class MainWindow(QMainWindow):
             "from the viewer camera (spherical texgen + hilite tile origin); exports bake them for "
             "a fixed front camera. No RDP combiner/lighting; dynamic slots use first-frame fallbacks.")
 
-    def _select_character(self, _index: int = -1) -> None:
+    def _fill_variant_combo(self) -> None:
+        with QSignalBlocker(self.variant_combo):
+            self.variant_combo.clear()
+            for variant, label in variants_for(CHARACTERS[self.source.character.key]):
+                self.variant_combo.addItem(label, variant)
+            self.variant_combo.setCurrentIndex(max(self.variant_combo.findData(self.source.character.variant), 0))
+
+    def _select_variant(self, _index: int = -1) -> None:
+        self._select_character(variant=str(self.variant_combo.currentData()))
+
+    def _select_character(self, _index: int = -1, variant: str = VARIANT_NORMAL) -> None:
         key = list(CHARACTERS)[self.character_combo.currentIndex()]
-        if key == self.source.character.key:
+        if (key, variant) == (self.source.character.key, self.source.character.variant):
             return
         self._pause()
         try:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            source = self.source.for_character(key)
-            cache_key = (key, source.character.default_animation)
+            source = self.source.for_character(key, variant)
+            cache_key = (key, variant, source.character.default_animation)
             scene = self._preview_cache.get(cache_key) or PreviewScene.from_rom(source)
         except Exception as exc:
             QMessageBox.critical(self, "DK64 Forge character error", str(exc))
             with QSignalBlocker(self.character_combo):
                 self.character_combo.setCurrentIndex(list(CHARACTERS).index(self.source.character.key))
+            self._fill_variant_combo()
             return
         finally:
             QApplication.restoreOverrideCursor()
         self.source = source
         self.preview = scene
         self._preview_cache[cache_key] = scene
+        self._fill_variant_combo()
         _positions, skeleton = scene.bind_pose()
         self.viewport.set_model_data(scene.render_data, skeleton)
         self._apply_character_info()
@@ -417,7 +438,7 @@ class MainWindow(QMainWindow):
             self._fill_animation_combo(self.dk_only_check.isChecked(),
                                        source.character.default_animation)
         self._select_animation()
-        self.statusBar().showMessage(f"{source.character.name}: {len(source.animations)} clips", 8000)
+        self.statusBar().showMessage(f"{source.character.display_name}: {len(source.animations)} clips", 8000)
 
     def _is_reference(self, animation_id) -> bool:
         """Entry 4 is only special for DK (bit-exact root and observed timing)."""
@@ -430,6 +451,8 @@ class MainWindow(QMainWindow):
             widget.ensure_loaded()
         if index != 0:
             self._pause()
+        if widget is not self.audio_tab:
+            self.audio_tab.stop()
 
     # --- timing, reference and joint inspector (JFG Forge parity) -------------------------
 
@@ -578,7 +601,7 @@ class MainWindow(QMainWindow):
         self._pause()
         animation_id = self.animation_combo.currentData()
         animated = animation_id is not None
-        cache_key = (self.source.character.key, animation_id)
+        cache_key = (self.source.character.key, self.source.character.variant, animation_id)
         if animated and cache_key not in self._preview_cache:
             try:
                 QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)

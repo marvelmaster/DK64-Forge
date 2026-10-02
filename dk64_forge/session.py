@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import pipeline
 from .animations import AnimationDescriptor, load_descriptors
-from .characters import CHARACTERS, DK, CharacterSpec
+from .characters import CHARACTERS, DK, VARIANT_NORMAL, CharacterSpec, variant_model, variant_spec
 
 
 REFERENCE_RAW_SHA256 = "5778c9ef72ef269cdcc52333710a79961a343b1f01d12189d1dbe94df3cbabed"
@@ -45,17 +45,17 @@ class RomSource:
     # Other characters' views of the same validated ROM, built on first use.
     _views: dict = field(default_factory=dict, compare=False, repr=False)
 
-    def for_character(self, key: str) -> "RomSource":
-        """The same ROM viewed as another supported character (cached)."""
-        if key == self.character.key:
+    def for_character(self, key: str, variant: str = VARIANT_NORMAL) -> "RomSource":
+        """The same ROM viewed as another supported character or model variant (cached)."""
+        if (key, variant) == (self.character.key, self.character.variant):
             return self
-        if key not in self._views:
+        if (key, variant) not in self._views:
             view = _character_view(self.path, self.normalized, self.byte_order, self.sha256,
-                                   CHARACTERS[key])
+                                   CHARACTERS[key], variant)
             view._views.update(self._views)
-            view._views[self.character.key] = self
-            self._views[key] = view
-        return self._views[key]
+            view._views[(self.character.key, self.character.variant)] = self
+            self._views[(key, variant)] = view
+        return self._views[(key, variant)]
 
     @property
     def metadata(self) -> dict[str, object]:
@@ -63,13 +63,15 @@ class RomSource:
             "character": self.character.name,
             "model_id": self.character.model_id,
             "model_entry": self.character.model_entry,
+            "model_variant": self.character.variant,
+            "hand_mask": self.character.hand_mask,
             "bones": len(self.skeleton.bones),
             "vertices": len(self.mesh.positions),
             "triangles": len(self.mesh.triangles),
             # Entry 4 is the DK-only bit-exact reference clip.
-            "animation": ANIMATION_ENTRY if self.character is DK else None,
+            "animation": ANIMATION_ENTRY if self.character.is_dk else None,
             "animation_table": 11,
-            "animation_entry": 4 if self.character is DK else self.character.default_animation,
+            "animation_entry": 4 if self.character.is_dk else self.character.default_animation,
             "compatible_animation_count": len(self.animations),
         }
 
@@ -95,17 +97,22 @@ def load_rom(path: Path) -> RomSource:
 
 
 def _character_view(path: Path, normalized: bytes, byte_order: str, digest: str,
-                    spec: CharacterSpec) -> RomSource:
+                    spec: CharacterSpec, variant: str = VARIANT_NORMAL) -> RomSource:
     try:
-        actor_bytes, _ = pipeline.static_dk.extract_entry(normalized, 5, spec.table5_entry)
+        entry, hand_mask = variant_model(spec, variant)
+        actor_bytes, _ = pipeline.static_dk.extract_entry(normalized, 5, entry)
         actor = pipeline.static_dk.parse_actor(actor_bytes)
-        mesh = pipeline.static_dk.decode_actor_mesh(actor, hand_state=spec.hand_mask)
+        mesh = pipeline.static_dk.decode_actor_mesh(actor, hand_state=hand_mask)
         skeleton = pipeline.dk_skeleton.parse_actor_skeleton(actor)
-        if (len(skeleton.bones), len(mesh.positions), len(mesh.triangles)) != (
+        if variant == VARIANT_NORMAL and (len(skeleton.bones), len(mesh.positions), len(mesh.triangles)) != (
                 spec.bones, spec.vertices, spec.triangles):
             raise ValueError(f"{spec.name} model structure differs from the verified reference")
+        if len(skeleton.bones) != spec.bones:
+            raise ValueError(f"{spec.name} {variant} model has a different skeleton")
+        if variant != VARIANT_NORMAL:
+            spec = variant_spec(spec, variant, mesh)
         animation_asset = b""
-        if spec is DK:
+        if spec.is_dk:
             # Entry 4 is the bit-exact DK reference clip; other characters have none.
             animation_asset, _ = pipeline.static_dk.extract_entry(normalized, 11, 4)
             animation_digest = hashlib.sha256(animation_asset).hexdigest()

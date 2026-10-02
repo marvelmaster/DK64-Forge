@@ -17,7 +17,7 @@ uploaded.
 2. Download this repository as a ZIP (green **Code** button → **Download ZIP**) and unpack it, or clone it:
    `git clone https://github.com/marvelmaster/DK64-Forge`
 3. Double-click `start_forge.bat`. On the first run it creates a `.venv` and installs
-   `PySide6`, `PyOpenGL` and `numpy` from `requirements.txt`; afterwards it just starts the app.
+   `PySide6`, `PyOpenGL`, `numpy` and `lameenc` (MP3 export) from `requirements.txt`; afterwards it just starts the app.
 4. In the app choose **File → Load ROM** and select your Donkey Kong 64 US ROM
    (`.z64`, `.n64` or `.v64`; the file name does not matter, the content is validated).
 
@@ -39,6 +39,10 @@ Nothing else needs to be downloaded or set up.
   Table-11 animations that fit the character's skeleton; **Only … clips** hides everything the
   character's own animation code never plays. Labels such as `Walk` are derived from the game's
   code and are not official names.
+- The **variant** selector under the character shows the Kong with its **weapon drawn** (Coconut
+  Shooter, Peanut Popguns, Grape Shooter, Feather Bow, Pineapple Launcher) or its **instrument model**
+  (Diddy, Lanky, Tiny and Chunky). Weapons are part of each Kong model and follow the hand bones in every
+  animation; the hand-state bits are the ones the game sets when the weapon is drawn.
 - The viewport supports orbit, pan and zoom, mesh/skeleton views and animation playback.
 - **Timing**: *Game rate* plays 30 adjusted units per second (observed for DK's Entry 4, a
   diagnostic assumption elsewhere), *Technical* plays one sample per second; the speed slider
@@ -67,6 +71,12 @@ can be exported as a single binary glTF (**Export static GLB...**). Animated pro
 shown in their rest pose; lighting and the colour combiner are approximated.
 Details: [docs/models.md](docs/models.md).
 
+### Audio tab
+
+The **Audio** tab plays the 174 songs and 1,126 sound effects and exports WAV or MP3. Songs are rendered
+from the game's compressed MIDI and instrument bank (without the game's reverb); sound effects use the
+game's samples, decoded exactly. Details: [docs/audio.md](docs/audio.md).
+
 ### Textures tab
 
 The **Textures** tab is a bank of the ROM's 6,011 geometry textures (table 25), with search, filters,
@@ -85,8 +95,8 @@ derives each name from its first user. Details: [docs/textures.md](docs/textures
 
 ## Limitations
 
-Experimental research tool, not a runtime-faithful reproduction. Animation is supported for the normal
-playable models only (no instrument or low-poly variants); other actors, props and maps are static. Lighting is not
+Experimental research tool, not a runtime-faithful reproduction. Animation is supported for the playable
+models, their weapon state and instrument models (no low-poly variants, no DK bongos); other actors, props and maps are static. Lighting is not
 modelled (shirts and shoes render flat white), animation timing is a browser convenience
 (30 units/s) for all clips except the reference clip of Donkey Kong, and adjustment rows and
 world placement are omitted. The exported textures use a fixed front camera for the

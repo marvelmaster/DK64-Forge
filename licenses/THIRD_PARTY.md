@@ -41,4 +41,6 @@ dk64_lib's `data_types/geometry.py`. No dk64_lib code is included in DK64 Forge.
 
 ## JFG Forge (MIT)
 
-See `JFG_Forge_MIT.txt`.
+See `JFG_Forge_MIT.txt`. Besides the window and viewport layout, the audio sequence decoder,
+song renderer, audio export, the Audio tab and the VADPCM decoder/bank parser are adapted from JFG Forge
+(`jfg_forge/core/audio_*.py`, `jfg_forge/gui/audio_tab.py`).

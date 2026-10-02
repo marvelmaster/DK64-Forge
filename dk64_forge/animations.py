@@ -96,7 +96,7 @@ def descriptor_from_row(row: dict, routes: dict[int, list[dict]] | None = None,
     if (row.get("reader_compatibility") != "READER_COMPATIBLE" or
             row.get(compat_field) != character.compatibility_value):
         raise ValueError("Table-11 entry is outside the compatible browser set")
-    is_dk = character is DK
+    is_dk = character.is_dk
     animation_id = int(row["id"])
     layout = row["layout"]
     marker = int(layout["endpoint_like_marker"])
@@ -147,7 +147,7 @@ def descriptor_from_row(row: dict, routes: dict[int, list[dict]] | None = None,
 
 def load_descriptors(source, census_path: Path | None = None) -> tuple[AnimationDescriptor, ...]:
     character = getattr(source, "character", DK)
-    path = Path(census_path or (CENSUS_PATH if character is DK else character.census_path))
+    path = Path(census_path or (CENSUS_PATH if character.is_dk else character.census_path))
     if not path.is_file():
         pipeline.dk_table11_animation_census.build_census(source.path, path, character.key)
     census = json.loads(path.read_text(encoding="utf-8"))

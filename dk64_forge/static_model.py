@@ -124,10 +124,10 @@ def map_model(rom: bytes, entry: int, cache: TextureCache) -> StaticModel | None
 
 
 def actor_conditional_mask(entry: int) -> int:
-    """Playable Kongs use their verified hand mask; other actors the spawn default -1."""
-    from .characters import CHARACTERS
+    """Playable Kongs (and their instrument models) use the hand mask; others the spawn default -1."""
+    from .characters import CHARACTERS, INSTRUMENT_ENTRIES
     for spec in CHARACTERS.values():
-        if spec.table5_entry == entry:
+        if entry in (spec.table5_entry, INSTRUMENT_ENTRIES.get(spec.key)):
             return spec.hand_mask
     return -1
 

@@ -146,14 +146,14 @@ def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
     if kind is ExportKind.ANIMATION_ONLY:
         return _export_animation_only(source, destination, animation_id)
     if kind is ExportKind.STATIC_TEXTURED:
-        names = {} if source.character is DK else {
-            "node_name": f"{source.character.name} (canonical pose, first dynamic frames)"}
+        names = {} if source.character.is_dk and source.character.variant == "normal" else {
+            "node_name": f"{source.character.display_name} (canonical pose, first dynamic frames)"}
         pipeline.static_dk.export_textured_gltf(
             source.mesh, source.actor, source.normalized, destination, **names
         )
-        if source.character is not DK:
+        if not source.character.is_dk or source.character.variant != "normal":
             doc = json.loads(destination.read_text(encoding="utf-8"))
-            doc["meshes"][0]["name"] = (f"{source.character.name} actor table 5 entry "
+            doc["meshes"][0]["name"] = (f"{source.character.display_name} actor table 5 entry "
                                         f"{source.character.table5_entry}")
             destination.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         validation = pipeline.static_dk.validate_gltf(destination)
@@ -163,7 +163,7 @@ def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
     if kind is not ExportKind.ANIMATED:
         raise ValueError(f"Unsupported export kind: {kind}")
 
-    if animation_id != 4 or source.character is not DK:
+    if animation_id != 4 or not source.character.is_dk:
         descriptor = descriptor_for(source, animation_id)
         with TemporaryDirectory(prefix="dk64_forge_browser_") as temp_dir:
             temp = Path(temp_dir)
@@ -200,8 +200,10 @@ def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
         bind = temp / "dk_skeleton_bind.gltf"
         pipeline.dk_skeleton.export_skinned_gltf(source.mesh, source.skeleton, bind)
         unretimed = temp / "entry4_unretimed.gltf"
+        spec = source.character
         first_validation = preview.export_experimental_animation(
-            samples, transforms, unretimed, bind
+            samples, transforms, unretimed, bind,
+            expected_mesh=(spec.vertices, spec.triangles, spec.bones),
         )
         trace = preview.preview_report(samples)
         trace["first_vs_final_pose"] = preview.compare_first_final_pose(samples)
@@ -257,6 +259,6 @@ def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
             "pose_output_accessors_byte_identical"
         ]
     if (validation["bones"], validation["triangles"],
-            validation["samples"], validation["channels"]) != (25, 704, 98, 75):
+            validation["samples"], validation["channels"]) != (25, spec.triangles, 98, 75):
         raise ValueError("Animated export differs from the verified DK reference")
     return ExportResult(destination, kind, validation)

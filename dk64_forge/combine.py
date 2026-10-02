@@ -122,9 +122,9 @@ def combine_partial_textures(source, animated: Path, textured: Path,
     doc["asset"]["generator"] = "DK64 Forge first desktop app; verified experimental paths"
     character = getattr(source, "character", DK)
     uv_metadata = generated_uv_metadata(character)
-    if character is not DK:
+    if not character.is_dk or character.variant != "normal":
         # The shared skin writer names DK; label other characters' mesh/node (DK unchanged).
-        doc["meshes"][0]["name"] = f"{character.name} actor table 5 entry {character.table5_entry}"
+        doc["meshes"][0]["name"] = f"{character.display_name} actor table 5 entry {character.table5_entry}"
         for node in doc["nodes"]:
             if "mesh" in node:
                 node["name"] = f"{character.key.upper()}_RootMesh"
