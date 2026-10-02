@@ -36,6 +36,7 @@ from .characters import CHARACTERS
 from .debug_view import DEFAULT_VIEW_MODE, ViewMode
 from .export import ExportKind, export_gltf
 from .preview_data import PreviewScene
+from .model_browser import KIND_ACTOR, KIND_MAP, KIND_PROP, ModelBrowserTab
 from .texture_tab import TextureTab
 from .session import (CHARACTER, RomParseError, RomReadError,
                       RomSession, UnsupportedRomError, load_rom)
@@ -121,6 +122,11 @@ class MainWindow(QMainWindow):
         # are added by their own modules.
         self.tabs = QTabWidget()
         self.tabs.addTab(splitter, "Characters")
+        self.models_tab = ModelBrowserTab(source.normalized, (KIND_ACTOR, KIND_PROP), "Models (actors and props)")
+        self.levels_tab = ModelBrowserTab(source.normalized, (KIND_MAP,), "Levels (map geometry)")
+        for tab, label in ((self.models_tab, "Models"), (self.levels_tab, "Levels")):
+            tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
+            self.tabs.addTab(tab, label)
         self.texture_tab = TextureTab(source.normalized)
         self.texture_tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
         self.tabs.addTab(self.texture_tab, "Textures")

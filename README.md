@@ -50,13 +50,6 @@ Nothing else needs to be downloaded or set up.
   model plus animation as glTF. Keep the `.gltf`, `.bin` and any
   `textures/` folder together.
 
-### Textures tab
-
-The **Textures** tab is a bank of the ROM's 6,011 geometry textures (table 25), with search, filters,
-a pixel preview and PNG export. The ROM stores neither formats nor names: Forge reads them from the
-display lists of every actor, prop and map that uses a texture (about 3,800 decode this way), and
-derives each name from its first user. Details: [docs/textures.md](docs/textures.md).
-
 | Kong | Bones | Faces | Animations in the browser | Played by the Kong | Labelled |
 |---|---|---|---|---|---|
 | Donkey Kong | 25 | 704 | 183 | 94 | 76 |
@@ -65,18 +58,35 @@ derives each name from its first user. Details: [docs/textures.md](docs/textures
 | Chunky Kong | 23 | 699 | 184 | 98 | 76 |
 | Lanky Kong | 21 | 704 | 171 | 92 | 66 |
 
+### Models and Levels tabs
+
+The **Models** tab lists every actor model (table 5, e.g. Rambi, enemies, NPCs) and every prop
+(table 4, named by the ROM itself, e.g. `torches`); the **Levels** tab lists the map geometry
+(table 1, e.g. Japes). Each entry is shown as a static, textured mesh with its vertex colours and
+can be exported as a single binary glTF (**Export static GLB...**). Animated props and actors are
+shown in their rest pose; lighting and the colour combiner are approximated.
+Details: [docs/models.md](docs/models.md).
+
+### Textures tab
+
+The **Textures** tab is a bank of the ROM's 6,011 geometry textures (table 25), with search, filters,
+a pixel preview and PNG export. The ROM stores neither formats nor names: Forge reads them from the
+display lists of every actor, prop and map that uses a texture (about 3,800 decode this way), and
+derives each name from its first user. Details: [docs/textures.md](docs/textures.md).
+
 ## Project layout
 
-- `dk64_forge/` – the application (window, viewport, export, ROM session).
+- `dk64_forge/` – the application (window, viewport, export, ROM session, Models/Levels/Textures tabs).
 - `dk64_forge/core/` – the DK64 core: ROM tables and decoding (`rom_model`), textures/hilite (`texgen`),
-  skeleton, animation tables, census and labels, pose reconstruction and the Entry-4 reference clip.
+  skeleton, animation tables, census and labels, pose reconstruction and the Entry-4 reference clip,
+  the texture bank (`texture_bank`) and the generic static mesh decoder (`mesh_decoder`).
   See `dk64_forge/core/__init__.py` for the module list.
 - `start_forge.bat`, `requirements.txt` – launcher and dependencies.
 
 ## Limitations
 
-Experimental research tool, not a runtime-faithful reproduction. Only the normal playable
-models are supported (no instrument or low-poly variants, no other actors). Lighting is not
+Experimental research tool, not a runtime-faithful reproduction. Animation is supported for the normal
+playable models only (no instrument or low-poly variants); other actors, props and maps are static. Lighting is not
 modelled (shirts and shoes render flat white), animation timing is a browser convenience
 (30 units/s) for all clips except the reference clip of Donkey Kong, and adjustment rows and
 world placement are omitted. The exported textures use a fixed front camera for the

@@ -44,6 +44,8 @@ class PreparedRenderData:
     textures: tuple[PreparedTexture, ...]
     bounds_minimum: tuple[float, float, float]
     bounds_maximum: tuple[float, float, float]
+    # Optional per-corner RGBA (0..1), e.g. DK64 map/prop vertex colours (shade). None = white.
+    colors: tuple[tuple[float, float, float, float], ...] | None = None
 
 
 def depth_comparison_for_batch(batch: PreparedBatch) -> str:
