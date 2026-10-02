@@ -36,6 +36,7 @@ from .characters import CHARACTERS
 from .debug_view import DEFAULT_VIEW_MODE, ViewMode
 from .export import ExportKind, export_gltf
 from .preview_data import PreviewScene
+from .texture_tab import TextureTab
 from .session import (CHARACTER, RomParseError, RomReadError,
                       RomSession, UnsupportedRomError, load_rom)
 from .viewport import ModelViewport
@@ -120,6 +121,10 @@ class MainWindow(QMainWindow):
         # are added by their own modules.
         self.tabs = QTabWidget()
         self.tabs.addTab(splitter, "Characters")
+        self.texture_tab = TextureTab(source.normalized)
+        self.texture_tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
+        self.tabs.addTab(self.texture_tab, "Textures")
+        self.tabs.currentChanged.connect(self._tab_changed)
         self.setCentralWidget(self.tabs)
         self._build_export_menu()
         self.rom_status_label = QLabel(f"ROM: {source.path.name}")
@@ -411,6 +416,14 @@ class MainWindow(QMainWindow):
     def _is_reference(self, animation_id) -> bool:
         """Entry 4 is only special for DK (bit-exact root and observed timing)."""
         return animation_id == 4 and self.source.character.key == "dk"
+
+    def _tab_changed(self, index: int) -> None:
+        """Tabs load their data the first time they are opened (as in JFG Forge)."""
+        widget = self.tabs.widget(index)
+        if hasattr(widget, "ensure_loaded"):
+            widget.ensure_loaded()
+        if index != 0:
+            self._pause()
 
     # --- timing, reference and joint inspector (JFG Forge parity) -------------------------
 

@@ -50,6 +50,13 @@ Nothing else needs to be downloaded or set up.
   model plus animation as glTF. Keep the `.gltf`, `.bin` and any
   `textures/` folder together.
 
+### Textures tab
+
+The **Textures** tab is a bank of the ROM's 6,011 geometry textures (table 25), with search, filters,
+a pixel preview and PNG export. The ROM stores neither formats nor names: Forge reads them from the
+display lists of every actor, prop and map that uses a texture (about 3,800 decode this way), and
+derives each name from its first user. Details: [docs/textures.md](docs/textures.md).
+
 | Kong | Bones | Faces | Animations in the browser | Played by the Kong | Labelled |
 |---|---|---|---|---|---|
 | Donkey Kong | 25 | 704 | 183 | 94 | 76 |
