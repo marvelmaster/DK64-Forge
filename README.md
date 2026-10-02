@@ -74,8 +74,8 @@ Details: [docs/models.md](docs/models.md).
 ### Audio tab
 
 The **Audio** tab plays the 174 songs and 1,126 sound effects and exports WAV or MP3. Songs are rendered
-from the game's compressed MIDI and instrument bank (without the game's reverb); sound effects use the
-game's samples, decoded exactly. Details: [docs/audio.md](docs/audio.md).
+from the game's compressed MIDI and instrument bank with the game's own reverb settings; sound effects
+use the game's samples, decoded exactly. Details: [docs/audio.md](docs/audio.md).
 
 ### Textures tab
 

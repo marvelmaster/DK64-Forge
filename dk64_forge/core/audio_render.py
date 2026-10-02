@@ -3,8 +3,9 @@
 Songs are rendered offline, note by note, from the decoded sequence and the
 music bank.  This is an approximation of the console's synthesizer: it follows
 the bank's key maps, pitch, envelopes, loops, channel volume and pan, and the
-sequence's tempo, but has no reverb, chorus, sustain pedal or mid-note pitch
-bend. DK64: the game's effect bus is not modelled, so songs render dry.
+sequence's tempo, but has no chorus, sustain pedal or mid-note pitch
+bend. DK64: songs go through the game's bus-0 reverb in its boot-default stereo mode
+(dk64_forge.core.audio_reverb).
 
 Adapted from MIT-licensed JFG Forge jfg_forge/core/audio_render.py (Copyright (c) 2026 Marvelmaster).
 """
@@ -28,6 +29,7 @@ from .audio_rom import (
     Song,
     decode_adpcm,
 )
+from .audio_reverb import apply_reverb, send_levels
 from .audio_sequence import DEFAULT_TEMPO_US, DecodedSequence, decode_sequence
 
 LOOP_FOREVER = 0xFFFFFFFF
@@ -116,6 +118,7 @@ class AudioEngine:
     def __init__(self, audio: AudioRom, output_rate: int = DEFAULT_OUTPUT_RATE) -> None:
         self.audio = audio
         self.output_rate = output_rate
+        self.stereo_reverb = True  # the game's boot default (sound mode 4)
         self._pcm: dict[tuple[int, int], np.ndarray] = {}
         self._sequences: dict[int, DecodedSequence] = {}
         self._sfx_sounds: list[Sound] = [s for i in audio.sfx_bank.instruments for s in i.sounds]
@@ -256,7 +259,7 @@ class AudioEngine:
         end_seconds = max(to_seconds(e.tick + e.duration) for e in notes)
         total = min(end_seconds + TAIL_SECONDS, MAX_SONG_SECONDS)
         mix = np.zeros((int(total * rate) + rate, 2), dtype=np.float32)
-        reverb = None
+        reverb = self.audio.reverb
         aux = np.zeros_like(mix) if reverb is not None else None  # what each channel sends to the effect
 
         program = [0] * 16  # instrument index per channel (bank select already applied)
@@ -313,7 +316,7 @@ class AudioEngine:
                 if room <= 0:
                     continue
                 voice = voice[:room]
-                dry, wet = 1.0, 0.0  # no reverb model for DK64 (yet)
+                dry, wet = send_levels(fx_send[channel]) if reverb is not None else (1.0, 0.0)
                 left, right = voice * gain * math.cos(angle), voice * gain * math.sin(angle)
                 mix[offset : offset + len(voice), 0] += left * dry
                 mix[offset : offset + len(voice), 1] += right * dry
@@ -323,6 +326,10 @@ class AudioEngine:
                 done += 1
                 if progress and done % 200 == 0:
                     progress(min(start / total, 1.0))
+        if reverb is not None and aux is not None and np.any(aux):
+            wet_left, wet_right = apply_reverb(aux[:, 0], aux[:, 1], reverb, rate, stereo=self.stereo_reverb)
+            mix[:, 0] += wet_left
+            mix[:, 1] += wet_right
         # Songs differ a lot in loudness; scale each one to a comfortable, non-clipping peak.
         peak = float(np.max(np.abs(mix)))
         if peak > 0:

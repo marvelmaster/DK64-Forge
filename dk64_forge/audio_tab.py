@@ -652,7 +652,7 @@ class AudioTab(QWidget):
                 ("Plays", "once through; an endless loop stops after one pass" if decoded.looped else "once through"),
             ]
             if rendered is not None:
-                rows.append(("Rendered", f"{format_time(rendered.seconds)}, stereo, {rendered.sample_rate} Hz, no reverb"))
+                rows.append(("Rendered", f"{format_time(rendered.seconds)}, stereo, {rendered.sample_rate} Hz, game reverb (bus 0, stereo)"))
             return rows
 
         self.music_page = AudioPage(

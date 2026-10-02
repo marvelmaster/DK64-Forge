@@ -145,7 +145,8 @@ class AudioRom:
     sfx_bank: SoundBank
     effects: tuple[SoundEffect, ...]
     songs: tuple[Song, ...]
-    reverb: object | None = None  # the game's effect bus is not modelled for DK64 yet
+    reverb: object | None = None  # bus-0 effect settings (audio_reverb.ReverbSettings)
+    echo: object | None = None    # bus-1 effect settings; no song selects this bus
 
 
 def lzss_decompress(source: bytes, index_bits: int = LZSS_INDEX_BITS) -> bytes:
@@ -255,7 +256,9 @@ def load_audio(rom: bytes) -> AudioRom:
     for song_id in range(texture_bank.entry_count(rom, SONG_TABLE)):
         data = texture_bank.table_entry(rom, SONG_TABLE, song_id) or b""
         songs.append(Song(song_id, 127, 0, 0, bytes(data)))
-    return AudioRom(music, sfx, effects, tuple(songs))
+    from .audio_reverb import load_fx_settings
+    reverb, echo = load_fx_settings(rom)
+    return AudioRom(music, sfx, effects, tuple(songs), reverb, echo)
 
 
 def decode_adpcm(samples: bytes, wave: WaveTable) -> np.ndarray:

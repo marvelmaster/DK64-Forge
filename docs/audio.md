@@ -31,7 +31,7 @@ The ROM stores no audio names.
 
 | | Format |
 |---|---|
-| Songs | Stereo, 32,000 Hz, scaled to a non-clipping peak |
+| Songs | Stereo, 32,000 Hz, with the game's reverb, scaled to a non-clipping peak |
 | Sound effects | Mono, at the bank's 22,050 Hz |
 
 MP3 export uses the `lameenc` package from `requirements.txt`. The audio belongs to its rights holders; keep exports for your own use.
@@ -53,6 +53,14 @@ The ROM layout is VERIFIED from the decompilation (CC0):
   - effects: 1 instrument, 1,126 sounds.
 - **Samples** are VADPCM. The decoder reproduces 176 of the 180 loop states stored in the ROM exactly. The other 4 belong to three sound-effect samples.
 - **Songs** are libultra compressed MIDI (`CSeq`). All 165,560 notes use instruments that exist in the bank.
+- **Reverb**: the game configures two custom effect buses. The settings are read from the ROM:
+  - `func_global_asm_80601A10` was read from the ROM's MIPS code. It copies a parameter table from global_asm `.data` (`0x807452D0`) into the synthesizer config.
+  - **Bus 0** is a room reverb: 8 sections over an 8,816-sample delay line. The last section is a silent chorus.
+  - **Bus 1** is an echo: 2,200 samples, feedback 0.4.
+  - Songs never select a bus (controller 92), so they use bus 0.
+  - Each channel's controller 91 splits its sound between dry and effect with the library's equal-power curve.
+  - At boot the game selects the **stereo** effect (`func_global_asm_80737C20(4)` and `func_global_asm_80737CF4(0, 4)`): one delay line per side. The left result goes to the left output at 0.7071 (`n_alFxPull`), the right result to the right output at 1.0 (`func_global_asm_8073FD90`).
+  - The mono variant (sound mode 1) is implemented as well. It sums both sides at 0.5 and scales the section gains by 1.4142.
 - A sound-effect number is an index into the sound bank's single instrument (LIKELY). The arcade code plays its `SFX_E` numbers this way.
 
 The sequence decoder, the song renderer, the export and this tab's layout are adapted from JFG Forge (MIT). Jet Force Gemini uses the same libultra audio formats.
@@ -65,4 +73,12 @@ The sequence decoder, the song renderer, the export and this tab's layout are ad
   - pitch, envelopes and loops;
   - channel volume and pan.
   
-  **No reverb:** the game's effect bus is not modelled yet. Chorus, sustain and mid-note pitch bends are also left out. Expect the right notes and instruments, but a "drier" sound than in the game.
+  It also applies the game's own reverb with the settings and mixing described above. The delay line is processed in the console's 184-sample steps at the console's 22,050 Hz timing, scaled to 32,000 Hz.
+  
+  **Left out:**
+  - chorus (the only chorus section is silent);
+  - sustain and mid-note pitch bends;
+  - the flag in bit 7 of a channel's effect send (controller 65), whose effect in the RSP is unknown;
+  - the console's fixed-point rounding.
+  
+  The sound-mode setting in the game's options can switch the reverb to mono. Forge renders the boot default (stereo).
