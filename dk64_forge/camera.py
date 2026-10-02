@@ -53,7 +53,8 @@ def _normalize(value: Vec3) -> Vec3:
 @dataclass
 class OrbitCamera:
     target: Vec3 = (0.0, 0.0, 0.0)
-    yaw: float = math.radians(35.0)
+    # The Kongs face +Z, so yaw 0 looks at their front; 20 degrees turns slightly to the side.
+    yaw: float = math.radians(20.0)
     pitch: float = math.radians(18.0)
     distance: float = 10.0
     scene_radius: float = 1.0

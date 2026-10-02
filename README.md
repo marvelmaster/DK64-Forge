@@ -40,7 +40,14 @@ Nothing else needs to be downloaded or set up.
   character's own animation code never plays. Labels such as `Walk` are derived from the game's
   code and are not official names.
 - The viewport supports orbit, pan and zoom, mesh/skeleton views and animation playback.
-- **File → Export** writes static or animated glTF. Keep the `.gltf`, `.bin` and any
+- **Timing**: *Game rate* plays 30 adjusted units per second (observed for DK's Entry 4, a
+  diagnostic assumption elsewhere), *Technical* plays one sample per second; the speed slider
+  (0.1x–5.0x) scales both. **Mark Current as Reference** / **Go to Reference** jump back to a clip.
+- **Viewport Debug** shows the selected joint's parent, current position, rest offset and the
+  geometry it moves; the browser shows the root (bone 0) translation of the current frame.
+- Start directly with a ROM: `.venv\Scripts\python.exe -m dk64_forge --rom path	oom.z64`.
+- **File → Export** writes the model, the current animation only (joints + clip, no mesh), or
+  model plus animation as glTF. Keep the `.gltf`, `.bin` and any
   `textures/` folder together.
 
 | Kong | Bones | Faces | Animations in the browser | Played by the Kong | Labelled |

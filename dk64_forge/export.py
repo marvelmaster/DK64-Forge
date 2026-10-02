@@ -18,6 +18,7 @@ from .session import RomSource
 class ExportKind(Enum):
     ANIMATED = "animated"
     STATIC_TEXTURED = "static_textured"
+    ANIMATION_ONLY = "animation_only"  # skeleton + clip, no mesh/materials (JFG "Current Animation")
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,38 @@ def _generic_animation(source: RomSource, descriptor: AnimationDescriptor,
     return retimed, trace, len(samples)
 
 
+def _export_animation_only(source: RomSource, destination: Path, animation_id: int) -> ExportResult:
+    """Joint hierarchy plus the selected clip: the animated export without mesh, skin or images.
+
+    Retargeting tools (Blender actions, NLA) only need the joints and channels; the
+    pose data is byte-identical to the full animated export.
+    """
+    with TemporaryDirectory(prefix="dk64_forge_anim_only_") as temp_dir:
+        full = Path(temp_dir) / "full.gltf"
+        full_result = export_gltf(source, full, ExportKind.ANIMATED, animation_id=animation_id)
+        doc = json.loads(full.read_text(encoding="utf-8"))
+        blob = full.with_name(doc["buffers"][0]["uri"]).read_bytes()
+    joint_nodes = set(doc["skins"][0]["joints"])
+    for node in doc["nodes"]:
+        node.pop("mesh", None)
+        node.pop("skin", None)
+    for key in ("meshes", "skins", "materials", "images", "textures", "samplers"):
+        doc.pop(key, None)
+    channels = doc["animations"][0]["channels"]
+    if not channels or any(channel["target"]["node"] not in joint_nodes for channel in channels):
+        raise ValueError("animation-only export lost its joint targets")
+    doc["asset"].setdefault("extras", {}).update({"export_kind": "animation_only",
+                                                  "mesh_omitted": True})
+    doc["buffers"][0] = {"uri": destination.with_suffix(".bin").name, "byteLength": len(blob)}
+    destination.with_suffix(".bin").write_bytes(blob)
+    destination.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    validation = {"joints": len(joint_nodes), "channels": len(channels),
+                  "samples": full_result.validation.get("samples"),
+                  "time_range": full_result.validation.get("time_range"),
+                  "mesh_omitted": True}
+    return ExportResult(destination, ExportKind.ANIMATION_ONLY, validation)
+
+
 def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
                 *, animation_id: int = 4) -> ExportResult:
     """Create a user-selected local export, without changing research artifacts."""
@@ -110,6 +143,8 @@ def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
     if destination.suffix.lower() != ".gltf":
         raise ValueError("Choose a .gltf output file")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if kind is ExportKind.ANIMATION_ONLY:
+        return _export_animation_only(source, destination, animation_id)
     if kind is ExportKind.STATIC_TEXTURED:
         names = {} if source.character is DK else {
             "node_name": f"{source.character.name} (canonical pose, first dynamic frames)"}
