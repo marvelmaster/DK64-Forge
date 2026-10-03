@@ -87,6 +87,6 @@ Only the captured interior interval of DK Entry 4 establishes 30 adjusted units/
 
 ## Validation
 
-Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **121 tests** (2 of them need a real OpenGL context and skip under Qt's offscreen platform), for **248 total**. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. No emulator was running for a new game-to-viewer comparison.
+Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **125 passing tests**, including the native Windows OpenGL checks, for **252 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. No emulator was running for a new game-to-viewer comparison.
 
 Tab details: [models.md](models.md), [textures.md](textures.md), [audio.md](audio.md).

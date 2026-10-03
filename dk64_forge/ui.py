@@ -447,7 +447,7 @@ class MainWindow(QMainWindow):
         self.limitations_label.setText(
             f"Texture preview: {spec.texgen_triangles} G_TEXTURE_GEN faces are regenerated live "
             "from the viewer camera (spherical texgen + hilite tile origin); exports bake them for "
-            "a fixed front camera. No RDP combiner/lighting; dynamic slots use first-frame fallbacks.")
+            "a fixed front camera. ROM combiner state with preview lighting; eye/mouth frames are selectable.")
 
     def _fill_variant_combo(self) -> None:
         with QSignalBlocker(self.variant_combo):
@@ -900,6 +900,14 @@ class MainWindow(QMainWindow):
         frame = self.preview.safe_first + relative_sample
         if frame != self._current_frame:
             self._show_frame(frame)
+
+    def closeEvent(self, event) -> None:
+        # Qt close hides the window; its owned timers otherwise keep animating,
+        # including when loading a replacement ROM window.
+        self._pause()
+        self.models_tab.pause()
+        self.levels_tab.pause()
+        super().closeEvent(event)
 
     def _show_renderer_error(self, message: str) -> None:
         self.statusBar().showMessage(f"OpenGL renderer unavailable: {message}")

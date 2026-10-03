@@ -755,7 +755,6 @@ class ModelViewport(QOpenGLWidget):
             for level, (width, height, rgba) in enumerate(texture.mip_levels, 1):
                 pixels = np.asarray(bytearray(rgba), dtype=np.uint8).reshape(height, width, 4).copy()
                 glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
-            glGenerateMipmap(GL_TEXTURE_2D)  # used when trilinear filtering is on
             handles[texture.texture_index] = handle
         glBindTexture(GL_TEXTURE_2D, 0)
         return handles

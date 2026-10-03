@@ -87,7 +87,8 @@ Nothing else needs to be downloaded or set up.
 
 The **Models** tab groups **Characters** and **Other models**. Other models browses actors and
 props, supports compatible actor-clip playback/animated GLB export, and prop texture frames.
-**Levels** adds map texture playback, placed setup props and actor/spawner markers.
+**Levels** adds map texture playback, placed setup props and actor/spawner meshes selected from the
+game's model tables; entries without a model use markers.
 The viewport evaluates ROM combiner state with preview lighting; full runtime fidelity remains open.
 Details: [docs/models.md](docs/models.md).
 
@@ -127,7 +128,8 @@ ownership; prop skeletal animation remains open. Eye/mouth frames are selectable
 scripts are not simulated. Tiny has an optional source-derived hair diagnostic with approximate
 world/anchor inputs. Most animation timing uses a diagnostic 30 units/s rate, and ordinary runtime
 adjustments/world placement remain omitted. View-dependent highlight exports use a fixed camera.
-Level actors and unsupported props appear as markers, with no spawn simulation or chunk visibility.
+Level actors use their assigned rest-pose meshes; missing models and unsupported props use markers.
+Spawn simulation and chunk visibility remain open.
 Songs omit chorus and mid-note pitch bends; SFX use their samples' own pitch and volume.
 
 ## Legal and license

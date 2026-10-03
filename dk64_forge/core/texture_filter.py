@@ -33,10 +33,12 @@ def _bilinear(level: np.ndarray, out_w: int, out_h: int) -> np.ndarray:
     h, w = level.shape[:2]
     x = (np.arange(out_w) + 0.5) * (w / out_w) - 0.5
     y = (np.arange(out_h) + 0.5) * (h / out_h) - 0.5
-    x0 = np.clip(np.floor(x).astype(int), 0, w - 1)
-    y0 = np.clip(np.floor(y).astype(int), 0, h - 1)
-    x1 = np.clip(x0 + 1, 0, w - 1)
-    y1 = np.clip(y0 + 1, 0, h - 1)
+    # Clamp each tap separately: clipping the lower tap before adding one
+    # incorrectly blends the second texel into the image's top/left border.
+    x_floor = np.floor(x).astype(int)
+    y_floor = np.floor(y).astype(int)
+    x0, x1 = np.clip(x_floor, 0, w - 1), np.clip(x_floor + 1, 0, w - 1)
+    y0, y1 = np.clip(y_floor, 0, h - 1), np.clip(y_floor + 1, 0, h - 1)
     fx = np.clip(x - np.floor(x), 0, 1)[None, :, None]
     fy = np.clip(y - np.floor(y), 0, 1)[:, None, None]
     top = level[y0][:, x0] * (1 - fx) + level[y0][:, x1] * fx

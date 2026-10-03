@@ -5,6 +5,7 @@ licensed JFG Forge renderer contract. No JFG asset semantics are used.
 """
 
 from dataclasses import dataclass, replace
+import weakref
 from .core.rdp import MaterialState
 
 
@@ -63,8 +64,9 @@ _CENTROIDS: dict = {}
 def _blend_centroids(scene: PreparedRenderData) -> dict:
     """Per-blended-batch vertex centroid, cached per positions tuple (sorting key only)."""
     key = (id(scene.positions), len(scene.positions), id(scene.batches))
-    cached = _CENTROIDS.get(key)
-    if cached is None:
+    entry = _CENTROIDS.get(key)
+    owner = entry[0]() if entry is not None else None
+    if owner is None or owner.positions is not scene.positions or owner.batches is not scene.batches:
         import numpy as np
         blended = [b for b in scene.batches if b.alpha_mode == "BLEND"]
         cached = {}
@@ -74,7 +76,9 @@ def _blend_centroids(scene: PreparedRenderData) -> dict:
                 cached[b.first_vertex] = points[b.first_vertex:b.first_vertex + b.vertex_count].mean(axis=0)
         if len(_CENTROIDS) > 16:
             _CENTROIDS.clear()
-        _CENTROIDS[key] = cached
+        _CENTROIDS[key] = (weakref.ref(scene), cached)
+    else:
+        cached = entry[1]
     return cached
 
 
