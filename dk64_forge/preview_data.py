@@ -353,16 +353,35 @@ class PreviewScene:
                       if parent is not None for point in (points[parent], points[child]))
         return PreparedSkeletonDebug(tuple(range(len(points))), points, edges)
 
-    def bind_pose(self):
+    def bind_pose(self, *, mouth_joint: int | None = None, mouth_degrees: float = 0):
+        if mouth_joint is not None and mouth_degrees:
+            locals_ = tuple(matrix if parent is None else
+                            np.linalg.inv(self.bind_globals[parent]) @ matrix
+                            for matrix, parent in zip(self.bind_globals, self.parent_ordinals))
+            return self._pose_locals(locals_, mouth_joint, mouth_degrees)
         self.posed_normals = self.bind_normals
         return self.render_data.positions, self._skeleton(self.bind_globals)
 
-    def pose(self, frame: int):
+    def pose(self, frame: int, *, mouth_joint: int | None = None, mouth_degrees: float = 0):
         """Display one exact exported sample; no guessed fractional evaluation."""
         index = frame - self.safe_first
         if not 0 <= index < len(self.local_samples) or frame > self.safe_last:
             raise ValueError("preview frame is outside the selected safe interval")
-        globals_ = self._globals(self.local_samples[index], self.parent_ordinals)
+        return self._pose_locals(self.local_samples[index], mouth_joint, mouth_degrees)
+
+    def _pose_locals(self, locals_, mouth_joint, mouth_degrees):
+        if mouth_joint is not None and mouth_degrees:
+            if not 0 <= mouth_joint < len(locals_):
+                raise ValueError("mouth joint is outside the skeleton")
+            # Custom preview offset around the jaw's local X axis. Keep the
+            # authored translation and scale, and leave cached samples intact.
+            angle = np.deg2rad(mouth_degrees)
+            c, s = np.cos(angle), np.sin(angle)
+            rotation = np.eye(4)
+            rotation[1:3, 1:3] = ((c, -s), (s, c))
+            locals_ = tuple(local @ rotation if joint == mouth_joint else local
+                            for joint, local in enumerate(locals_))
+        globals_ = self._globals(locals_, self.parent_ordinals)
         posed = np.empty_like(self.bind_positions)
         normals = None if self.bind_normals is None else np.empty_like(self.bind_normals)
         for joint in range(len(self.inverse_binds)):

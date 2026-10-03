@@ -239,14 +239,21 @@ class MainWindow(QMainWindow):
 
         self.texture_frame_spin = QSpinBox()
         self.texture_frame_spin.setRange(0, 255)
-        self.texture_frame_spin.setPrefix("Eyes / mouth frame ")
-        self.texture_frame_spin.setToolTip("ROM texture-slot frame, wrapped per slot. Automatic blinking overrides eye slots; mouth expressions retain this selection.")
+        self.texture_frame_spin.setPrefix("Texture slot frame ")
+        self.texture_frame_spin.setToolTip("ROM texture-slot frame, wrapped per slot. Includes eye and clothing/colour slots; automatic blinking overrides eyes.")
         self.texture_frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.texture_frame_spin)
         self.auto_blink_check = QCheckBox("Automatic eye blinking")
-        self.auto_blink_check.setToolTip("Single-player Kong blink script with repeatable preview RNG. Mouth expressions retain the selected frame.")
+        self.auto_blink_check.setToolTip("Single-player Kong blink script with repeatable preview RNG.")
         self.auto_blink_check.toggled.connect(self._texture_frame_changed)
         layout.addWidget(self.auto_blink_check)
+        self.mouth_spin = QSpinBox()
+        self.mouth_spin.setRange(0, 35)
+        self.mouth_spin.setPrefix("Mouth opening +")
+        self.mouth_spin.setSuffix("°")
+        self.mouth_spin.setToolTip("Custom jaw opening added to the selected animation. Zero keeps the ROM expression. Preview only; glTF exports keep the authored animation.")
+        self.mouth_spin.valueChanged.connect(self._mouth_changed)
+        layout.addWidget(self.mouth_spin)
         self.hair_check = QCheckBox("Tiny procedural hair (diagnostic)")
         self.hair_check.setToolTip("Game pendulum equations with clip-space head-Y as an anchor proxy; Actor speed/heading zero. Requires live capture for exact game motion.")
         self.hair_check.setVisible(self.source.character.key == "tiny")
@@ -451,7 +458,7 @@ class MainWindow(QMainWindow):
         self.limitations_label.setText(
             f"Texture preview: {spec.texgen_triangles} G_TEXTURE_GEN faces are regenerated live "
             "from the viewer camera (spherical texgen + hilite tile origin); exports bake them for "
-            "a fixed front camera. ROM combiner state with preview lighting; eye/mouth frames are selectable.")
+            "a fixed front camera. ROM combiner state with preview lighting; eye and colour frames are selectable; mouth opening is a custom preview offset.")
 
     def _fill_variant_combo(self) -> None:
         with QSignalBlocker(self.variant_combo):
@@ -516,6 +523,19 @@ class MainWindow(QMainWindow):
                 self.viewport.set_attachment_data(data)
                 return
         self.viewport.set_attachment_data(None)
+
+    def _mouth_changed(self, *_args) -> None:
+        if not hasattr(self, "viewport"):
+            return
+        if self._selected_animation_id is not None:
+            self._show_frame(self._current_frame)
+        else:
+            joint = next((bone.index for bone in self.source.skeleton.bones
+                          if bone.master_index == 3), None)
+            positions, skeleton = self.preview.bind_pose(mouth_joint=joint,
+                                                         mouth_degrees=self.mouth_spin.value())
+            self.viewport.set_scene_data(positions, skeleton)
+            self.viewport.set_vertex_colors(self.preview.shade_colors())
 
     def _texture_frame_changed(self, *_args) -> None:
         from .core.actor_textures import KongBlink
@@ -774,6 +794,7 @@ class MainWindow(QMainWindow):
             self.playback_state_label.setText("Static")
             positions, skeleton = self.preview.bind_pose()
             self.viewport.set_scene_data(positions, skeleton)
+            self._mouth_changed()
             self.viewport.set_vertex_colors(self.preview.shade_colors())
             self._last_skeleton = skeleton
             self.time_label.setText("Static canonical model")
@@ -842,7 +863,11 @@ class MainWindow(QMainWindow):
     def _show_frame(self, frame: int) -> None:
         first, last = self.preview.safe_first, self.preview.safe_last
         self._current_frame = max(first, min(last, frame))
-        positions, skeleton = self.preview.pose(self._current_frame)
+        mouth_joint = next((bone.index for bone in self.source.skeleton.bones
+                            if bone.master_index == 3), None)
+        positions, skeleton = self.preview.pose(self._current_frame,
+                                               mouth_joint=mouth_joint,
+                                               mouth_degrees=self.mouth_spin.value())
         self.viewport.set_scene_data(positions, skeleton)
         self.viewport.set_vertex_colors(self.preview.shade_colors())
         if self._attachment_bind_positions is not None:

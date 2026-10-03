@@ -2,7 +2,7 @@
 
 The game uses a random 4% trigger after 50 ticks. The preview uses a fixed
 seed for repeatable scrubbing; this is not a replay of the game's RNG state.
-Other expression/mouth slots remain under manual control.
+Other texture slots (including clothing colours) remain under manual control.
 """
 import random
 
