@@ -1,7 +1,7 @@
 """DK's separate bongo actor: source-selected clips, diagnostic sample timing.
 
 Actor 239 dispatches to 8069E040, which starts Table-13 script 299. That
-script plays clips 494, 495, 493. Attachment follows DK's root at scale 1.25.
+script plays clips 494, 495, 493. Attachment shares DK's actor origin at scale 1.25; it does not inherit the pelvis pose.
 """
 from .actor_animation import ActorAnimations
 from .core import anim_code_table, rom_model, texture_bank

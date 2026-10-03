@@ -498,7 +498,30 @@ class ModelBrowserTab(QWidget):
                                  or "-")
         self._show_render(model)
         self._level_content_changed()
+        self._autoplay_model()
         return model
+
+    def _autoplay_model(self):
+        """Play embedded prop tracks or the first fully validated actor candidate."""
+        if self._current is None or self._current[0].kind == KIND_MAP:
+            return
+        self._load_actor_clips()
+        for index in range(1, self.clip_combo.count()):
+            self.clip_combo.setCurrentIndex(index)
+            if (self._current[0].kind == KIND_PROP or
+                    (self._actor_animations is not None and self._actor_animations.samples)):
+                self._scene_timer.start()
+                self.scene_play.setText("Pause")
+                return
+        if self.clip_combo.currentData() is not None:
+            self.clip_combo.setCurrentIndex(0)
+        # Props without matrices can still have embedded texture animation.
+        if self._current[0].kind == KIND_PROP:
+            from .core import texture_animation
+            data = texture_bank.table_entry(self._rom, 4, self._current[0].index)
+            if texture_animation.prop_animations(data):
+                self._scene_timer.start()
+                self.scene_play.setText("Pause")
 
     def _show_render(self, model: static_model.StaticModel) -> None:
         skeleton = static_model.marker_skeleton(model.render)

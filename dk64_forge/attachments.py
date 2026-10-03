@@ -67,9 +67,9 @@ def add_bongos(source, path):
         skin["joints"] = [i + bases["nodes"] for i in skin["joints"]]
         skin["skeleton"] += bases["nodes"]
         skin["inverseBindMatrices"] += bases["accessors"]
-    parent = doc["skins"][0]["joints"][0] if doc.get("skins") else doc["scenes"][0]["nodes"][0]
     root = len(doc["nodes"]) + len(attachment["nodes"])
-    doc["nodes"][parent].setdefault("children", []).append(root)
+    # moveAndScaleActorToAnother copies actor placement, not skeletal motion.
+    doc["scenes"][0]["nodes"].append(root)
     for animation in attachment.get("animations", []):
         animation["name"] = "DK bongos source script 299 (diagnostic timing)"
         animation["extras"].update(ownership="SOURCE VERIFIED", table13_script=0x299,

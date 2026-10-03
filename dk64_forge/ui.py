@@ -247,13 +247,13 @@ class MainWindow(QMainWindow):
         self.auto_blink_check.setToolTip("Single-player Kong blink script with repeatable preview RNG.")
         self.auto_blink_check.toggled.connect(self._texture_frame_changed)
         layout.addWidget(self.auto_blink_check)
-        self.mouth_spin = QSpinBox()
-        self.mouth_spin.setRange(0, 35)
-        self.mouth_spin.setPrefix("Mouth opening +")
-        self.mouth_spin.setSuffix("°")
-        self.mouth_spin.setToolTip("Custom jaw opening added to the selected animation. Zero keeps the ROM expression. Preview only; glTF exports keep the authored animation.")
-        self.mouth_spin.valueChanged.connect(self._mouth_changed)
-        layout.addWidget(self.mouth_spin)
+        self.mouth_label = QLabel("Mouth opening +0°")
+        layout.addWidget(self.mouth_label)
+        self.mouth_slider = QSlider(Qt.Orientation.Horizontal)
+        self.mouth_slider.setRange(0, 35)
+        self.mouth_slider.setToolTip("Custom jaw opening added to the selected animation. Zero keeps the ROM expression. Preview only; glTF exports keep the authored animation.")
+        self.mouth_slider.valueChanged.connect(self._mouth_changed)
+        layout.addWidget(self.mouth_slider)
         self.hair_check = QCheckBox("Tiny procedural hair (diagnostic)")
         self.hair_check.setToolTip("Game pendulum equations with clip-space head-Y as an anchor proxy; Actor speed/heading zero. Requires live capture for exact game motion.")
         self.hair_check.setVisible(self.source.character.key == "tiny")
@@ -525,6 +525,7 @@ class MainWindow(QMainWindow):
         self.viewport.set_attachment_data(None)
 
     def _mouth_changed(self, *_args) -> None:
+        self.mouth_label.setText(f"Mouth opening +{self.mouth_slider.value()}°")
         if not hasattr(self, "viewport"):
             return
         if self._selected_animation_id is not None:
@@ -533,7 +534,7 @@ class MainWindow(QMainWindow):
             joint = next((bone.index for bone in self.source.skeleton.bones
                           if bone.master_index == 3), None)
             positions, skeleton = self.preview.bind_pose(mouth_joint=joint,
-                                                         mouth_degrees=self.mouth_spin.value())
+                                                         mouth_degrees=self.mouth_slider.value())
             self.viewport.set_scene_data(positions, skeleton)
             self.viewport.set_vertex_colors(self.preview.shade_colors())
 
@@ -867,21 +868,19 @@ class MainWindow(QMainWindow):
                             if bone.master_index == 3), None)
         positions, skeleton = self.preview.pose(self._current_frame,
                                                mouth_joint=mouth_joint,
-                                               mouth_degrees=self.mouth_spin.value())
+                                               mouth_degrees=self.mouth_slider.value())
         self.viewport.set_scene_data(positions, skeleton)
         self.viewport.set_vertex_colors(self.preview.shade_colors())
         if self._attachment_bind_positions is not None:
             import numpy as np
-            sample = self.preview.local_samples[self._current_frame - first]
-            root = self.preview._globals(sample, self.preview.parent_ordinals)[0]
             if self._bongo_animation is not None:
                 seconds = (self._current_frame - first) / self._samples_per_second()
                 bongo_frame = min(int(seconds * 30), len(self._bongo_animation.samples) - 1)
                 points = np.asarray(self._bongo_animation.pose(bongo_frame)) * 1.25
             else:
                 points = np.asarray(self._attachment_bind_positions)
-            posed = points @ root[:3, :3].T + root[:3, 3]
-            self.viewport.set_attachment_positions(tuple(tuple(float(v) for v in p) for p in posed))
+            # Separate actor at the shared actor origin, not DK's pelvis joint.
+            self.viewport.set_attachment_positions(tuple(tuple(float(v) for v in p) for p in points))
         if self.auto_blink_check.isChecked():
             self._blink_tick = int((self._time_seconds if self._playing else (self._current_frame - first) / self._samples_per_second()) * 30)
             self._texture_frame_changed()
