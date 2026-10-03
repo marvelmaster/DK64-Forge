@@ -18,4 +18,13 @@ root_completion    completed root reconstruction (Entry 4)
 entry4_timing      Entry-4 playback timing
 entry4_preview     Entry-4 reference clip preview
 entry4_retime      Entry-4 retiming
+names              actor model and map names (Randomizer / decomp lists)
+texture_bank       pointer-table access, table-25 texture bank, texture decoders
+mesh_decoder       generic F3DEX2 static decoder for actors, props and maps
+audio_rom          sound banks (mode-2 LZSS, ALBankFile), songs, VADPCM
+audio_sequence     compressed MIDI (CSeq) decoder (from JFG Forge)
+audio_render       song and sound-effect rendering (from JFG Forge)
+audio_reverb       the game's effect buses and stereo reverb
+audio_export       WAV/MP3 writing (from JFG Forge)
+audio_names        song and sound-effect names
 """

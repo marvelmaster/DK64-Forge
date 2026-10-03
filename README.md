@@ -1,9 +1,12 @@
 # DK64 Forge
 
-DK64 Forge is an experimental desktop viewer and glTF exporter for the five
-playable Kongs (Donkey Kong, Diddy, Tiny, Chunky and Lanky) of Donkey Kong 64
-US revision 0. It shows the textured, skinned model, plays the character's
-animations and exports static or animated glTF (opens in Blender).
+DK64 Forge is an experimental desktop viewer and exporter for Donkey Kong 64 US revision 0.
+
+- **Characters:** the five playable Kongs (Donkey Kong, Diddy, Tiny, Chunky and Lanky) as textured,
+  skinned models with their weapons and instruments; plays their animations and exports static or
+  animated glTF, which opens in Blender.
+- **Models, Levels, Audio and Textures:** browse every actor, prop and map, play the music and
+  sound effects, and export textures.
 
 ![DK64 Forge showing Chunky Kong's walk animation](docs/screenshot.png)
 
@@ -86,10 +89,11 @@ derives each name from its first user. Details: [docs/textures.md](docs/textures
 
 ## Project layout
 
-- `dk64_forge/` – the application (window, viewport, export, ROM session, Models/Levels/Textures tabs).
+- `dk64_forge/` – the application (window, viewport, export, ROM session, Models/Levels/Audio/Textures tabs).
 - `dk64_forge/core/` – the DK64 core: ROM tables and decoding (`rom_model`), textures/hilite (`texgen`),
   skeleton, animation tables, census and labels, pose reconstruction and the Entry-4 reference clip,
-  the texture bank (`texture_bank`) and the generic static mesh decoder (`mesh_decoder`).
+  the texture bank (`texture_bank`), the generic static mesh decoder (`mesh_decoder`) and audio
+  (`audio_rom`, `audio_sequence`, `audio_render`, `audio_reverb`, `audio_export`, `audio_names`).
   See `dk64_forge/core/__init__.py` for the module list.
 - `start_forge.bat`, `requirements.txt` – launcher and dependencies.
 
@@ -100,10 +104,13 @@ models, their weapon state and instrument models (no low-poly variants, no DK bo
 modelled (shirts and shoes render flat white), animation timing is a browser convenience
 (30 units/s) for all clips except the reference clip of Donkey Kong, and adjustment rows and
 world placement are omitted. The exported textures use a fixed front camera for the
-view-dependent highlight faces.
+view-dependent highlight faces. In the Models and Levels tabs lighting is approximated and map
+objects are not placed. Songs are rendered by Forge (no chorus or mid-note pitch bends), and sound
+effects play at their sample's own pitch and volume.
 
 ## Legal and license
 
 The source code is released under the [MIT License](LICENSE). Donkey Kong 64 and its
 characters belong to their respective owners; this is an unofficial, non-commercial research
-tool. The viewport layout is modelled on JFG Forge ([license](licenses/JFG_Forge_MIT.txt)).
+tool. The viewport layout and the audio player/renderer are adapted from JFG Forge
+([license](licenses/JFG_Forge_MIT.txt)); other sources are listed in [licenses/THIRD_PARTY.md](licenses/THIRD_PARTY.md).
