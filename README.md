@@ -56,6 +56,24 @@ Nothing else needs to be downloaded or set up.
 - **File → Export** writes the model, the current animation only (joints + clip, no mesh), or
   model plus animation as glTF. Keep the `.gltf`, `.bin` and any
   `textures/` folder together.
+- **Export all**: every tab can export its whole list into a folder, with a progress dialog that
+  can be cancelled.
+
+  | Tab | What "Export all" writes |
+  |---|---|
+  | Characters (button, or File → Export) | the model plus every listed clip (model + animation) |
+  | Models / Levels | every shown entry as a static GLB |
+  | Audio | every shown song or sound as WAV |
+  | Textures | every shown texture as PNG |
+
+  Search and filters decide what is included. Entries that fail (e.g. undecodable textures) are
+  listed at the end.
+- **View menu**: these options apply to every 3D view.
+  - **Show FPS Counter** (F3): frames painted per second and the render time per frame. A static
+    view only repaints when something changes, so its fps is low while ms/frame shows the cost.
+  - **Trilinear Texture Filtering**: mipmapped textures in the 3D views.
+  - **Ground Grid**: the grid under the character preview, at y = 0 with the red X and blue Z axes;
+    also on the "Show ground grid" checkbox.
 
 | Kong | Bones | Faces | Animations in the browser | Played by the Kong | Labelled |
 |---|---|---|---|---|---|
@@ -83,6 +101,8 @@ use the game's decoded samples (four stored ADPCM loop states remain unresolved)
 
 The **Textures** tab browses banks 25 (geometry), 7 (uncompressed) and 14 (HUD), with search,
 usage-derived formats, manual decoding, pixel preview and bank-qualified PNG export.
+**Trilinear filtering** switches the preview from exact texels at integer zoom to a smooth,
+mipmapped scale to the panel size. It is a preview only; PNG exports keep the original pixels.
 Details: [docs/textures.md](docs/textures.md).
 
 ## Project layout

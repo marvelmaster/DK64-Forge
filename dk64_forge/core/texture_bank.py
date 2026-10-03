@@ -23,6 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import zlib
 
+import numpy as np
+
 from . import rom_model
 
 TABLE_ACTORS, TABLE_PROPS, TABLE_MAPS, TABLE_TEXTURES = 5, 4, 1, 25
@@ -251,12 +253,11 @@ def deinterleave(raw: bytes, row_bytes: int, height: int) -> bytes:
     """
     if row_bytes % 8:
         return raw
-    out = bytearray(raw)
-    for y in range(1, height, 2):
-        row = y * row_bytes
-        for at in range(row, min(row + row_bytes, len(raw) - 7), 8):
-            out[at:at + 4], out[at + 4:at + 8] = raw[at + 4:at + 8], raw[at:at + 4]
-    return bytes(out)
+    rows = min(height, len(raw) // row_bytes)
+    out = np.frombuffer(raw, dtype=np.uint8).copy()
+    words = out[:rows * row_bytes].reshape(rows, row_bytes // 8, 2, 4)
+    words[1::2] = words[1::2, :, ::-1, :]
+    return out.tobytes()
 
 
 def _rgba5551(value: int) -> tuple[int, int, int, int]:
@@ -264,12 +265,37 @@ def _rgba5551(value: int) -> tuple[int, int, int, int]:
     return (r << 3) | (r >> 2), (g << 3) | (g >> 2), (b << 3) | (b >> 2), 255 if value & 1 else 0
 
 
+def _rgba5551_array(values: np.ndarray) -> np.ndarray:
+    values = values.astype(np.uint32)
+    out = np.empty((len(values), 4), dtype=np.uint8)
+    for channel, shift in enumerate((11, 6, 1)):
+        c = (values >> shift) & 31
+        out[:, channel] = (c << 3) | (c >> 2)
+    out[:, 3] = np.where(values & 1, 255, 0)
+    return out
+
+
+def _texels(data: bytes, bits: int, count: int) -> np.ndarray:
+    raw = np.frombuffer(data, dtype=np.uint8)
+    if bits == 4:
+        texels = np.empty(count, dtype=np.uint32)
+        texels[0::2] = raw[:(count + 1) // 2] >> 4
+        texels[1::2] = raw[:count // 2] & 15
+        return texels
+    if bits == 8:
+        return raw[:count].astype(np.uint32)
+    if bits == 16:
+        return np.frombuffer(data, dtype=">u2", count=count).astype(np.uint32)
+    return np.frombuffer(data, dtype=">u4", count=count).astype(np.uint32)
+
+
 def decode(raw: bytes, usage: TextureUsage, palette: bytes | None = None) -> bytes | None:
     """RGBA8888 pixels (width*height*4) for one usage, or None when it cannot be decoded.
 
     Formats: RGBA16/32, IA4/8/16, I4/8, CI4/8 (RGBA16 TLUT). I/IA previews show the
     intensity as grey with the stored alpha (I: opaque). RGBA32 interleaving is not undone
-    (TMEM splits 32-bit texels; evidence mixed, as in JFG Forge).
+    (TMEM splits 32-bit texels; evidence mixed, as in JFG Forge). Vectorised with NumPy;
+    results are identical to the per-texel definition above each branch.
     """
     bits = SIZES.get(usage.size)
     if bits is None or usage.width <= 0 or usage.height <= 0:
@@ -282,56 +308,47 @@ def decode(raw: bytes, usage: TextureUsage, palette: bytes | None = None) -> byt
     if usage.interleaved and bits != 32:
         data = deinterleave(data, row_bytes, usage.height)
     count = usage.width * usage.height
-    out = bytearray(count * 4)
-    fmt, size = usage.fmt, usage.size
-
-    def texel(i: int) -> int:
-        if bits == 4:
-            byte = data[i >> 1]
-            return byte >> 4 if i % 2 == 0 else byte & 15
-        if bits == 8:
-            return data[i]
-        if bits == 16:
-            return int.from_bytes(data[2 * i:2 * i + 2], "big")
-        return int.from_bytes(data[4 * i:4 * i + 4], "big")
-
+    fmt = usage.fmt
+    value = _texels(data, bits, count)
+    out = np.empty((count, 4), dtype=np.uint8)
     if fmt == 2:  # CI
         entries = 16 if bits == 4 else 256
         # A CI image needs a TLUT with all its colours; a 16-colour TLUT paired with a CI8
         # usage (seen on some maps) is not trusted, so such images stay "not decoded".
-        if palette is None or len(palette) < 2 * entries:
+        if palette is None or len(palette) < 2 * entries or bits not in (4, 8):
             return None
-        colours = [_rgba5551(int.from_bytes(palette[2 * c:2 * c + 2], "big")) for c in range(entries)]
-    for i in range(count):
-        value = texel(i)
-        if fmt == 0 and bits == 16:
-            pixel = _rgba5551(value)
-        elif fmt == 0 and bits == 32:
-            pixel = (value >> 24, (value >> 16) & 255, (value >> 8) & 255, value & 255)
-        elif fmt == 3 and bits == 16:
-            pixel = (value >> 8,) * 3 + (value & 255,)
-        elif fmt == 3 and bits == 8:
-            intensity, alpha = (value >> 4) * 17, (value & 15) * 17
-            pixel = (intensity,) * 3 + (alpha,)
-        elif fmt == 3 and bits == 4:
-            intensity, alpha = (value >> 1) * 255 // 7, 255 if value & 1 else 0
-            pixel = (intensity,) * 3 + (alpha,)
-        elif fmt == 4 and bits == 8:
-            pixel = (value,) * 3 + (255,)
-        elif fmt == 4 and bits == 4:
-            pixel = (value * 17,) * 3 + (255,)
-        elif fmt == 2:
-            pixel = colours[value]
-        else:
-            return None
-        out[4 * i:4 * i + 4] = bytes(pixel)
-    return bytes(out)
+        colours = _rgba5551_array(np.frombuffer(palette, dtype=">u2", count=entries))
+        out[:] = colours[value]
+    elif fmt == 0 and bits == 16:
+        out[:] = _rgba5551_array(value)
+    elif fmt == 0 and bits == 32:
+        for channel, shift in enumerate((24, 16, 8, 0)):
+            out[:, channel] = (value >> shift) & 255
+    elif fmt == 3 and bits == 16:
+        out[:, 0:3] = (value >> 8)[:, None]
+        out[:, 3] = value & 255
+    elif fmt == 3 and bits == 8:
+        out[:, 0:3] = ((value >> 4) * 17)[:, None]
+        out[:, 3] = (value & 15) * 17
+    elif fmt == 3 and bits == 4:
+        out[:, 0:3] = ((value >> 1) * 255 // 7)[:, None]
+        out[:, 3] = np.where(value & 1, 255, 0)
+    elif fmt == 4 and bits == 8:
+        out[:, 0:3] = value[:, None]
+        out[:, 3] = 255
+    elif fmt == 4 and bits == 4:
+        out[:, 0:3] = (value * 17)[:, None]
+        out[:, 3] = 255
+    else:
+        return None
+    return out.tobytes()
 
 
 def rgba_png(width: int, height: int, rgba: bytes) -> bytes:
     """Minimal PNG writer (RGBA8888)."""
     import binascii
     import struct
+
     rows = b"".join(b"\x00" + rgba[y * width * 4:(y + 1) * width * 4] for y in range(height))
 
     def chunk(kind: bytes, payload: bytes) -> bytes:

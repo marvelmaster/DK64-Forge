@@ -193,8 +193,12 @@ class ModelBrowserTab(QWidget):
         self.reset_button = QPushButton("Reset view")
         self.export_button = QPushButton("Export static GLB...")
         self.export_button.setEnabled(False)
+        self.export_all_button = QPushButton("Export all shown as GLB...")
+        self.export_all_button.setToolTip("Export every entry of the current list (search and filter apply) "
+                                          "as static GLB files into one folder.")
         layout.addWidget(self.reset_button)
         layout.addWidget(self.export_button)
+        layout.addWidget(self.export_all_button)
         note = QLabel("Static rest pose. ROM colour/alpha combiner; preview lighting. "
                       "Magenta = texture referenced but not decoded. Texture frames are selectable.")
         note.setWordWrap(True)
@@ -203,6 +207,7 @@ class ModelBrowserTab(QWidget):
         self.kind_combo.currentIndexChanged.connect(self._refresh_list)
         self.list_widget.currentItemChanged.connect(self._select_item)
         self.reset_button.clicked.connect(lambda: self.viewport and self.viewport.reset_view())
+        self.export_all_button.clicked.connect(lambda _checked=False: self.export_all())
         self.export_button.clicked.connect(self._export_current)
         return panel
 
@@ -431,6 +436,39 @@ class ModelBrowserTab(QWidget):
             self._view_layout.addWidget(self.viewport)
         else:
             self.viewport.set_model_data(model.render, skeleton)
+
+    def export_jobs(self, entries=None, *, with_content: bool | None = None):
+        """(label, job) pairs exporting each entry as a static GLB (maps optionally with
+        their placed props/actors, as the content checkbox shows them)."""
+        if entries is None:
+            entries = self.shown()
+        if with_content is None:
+            with_content = self.content_check.isChecked()
+
+        def job_for(entry):
+            def job(folder: Path):
+                model = LOADERS[entry.kind](self._rom, entry.index, self._cache)
+                if model is None or model.triangles == 0:
+                    raise ValueError("no decodable geometry")
+                if entry.kind == KIND_MAP and with_content:
+                    from dataclasses import replace
+                    from . import level_content
+                    content, _rows, _missing = level_content.content_render(self._rom, entry.index, self._cache)
+                    if content is not None:
+                        render = level_content.merge_render((model.render, content))
+                        model = replace(model, render=render, triangles=sum(b.face_count for b in render.batches),
+                                        textures=len(render.textures))
+                static_model.export_glb(model, folder / f"{safe_file_stem(entry)}.glb", safe_file_stem(entry))
+            return job
+        return [(entry.label, job_for(entry)) for entry in entries]
+
+    def export_all(self, folder: Path | None = None):
+        from .batch_export import export_all
+        self.ensure_loaded()
+        result = export_all(self, f"Export {self._title}", self.export_jobs(), folder)
+        if result is not None:
+            self.status_message.emit(result.summary())
+        return result
 
     def _export_current(self) -> None:
         if self._current is None:

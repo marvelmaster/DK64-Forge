@@ -57,17 +57,43 @@ def depth_comparison_for_batch(batch: PreparedBatch) -> str:
     return "LEQUAL" if batch.z_mode == 3 else "LESS"
 
 
+_CENTROIDS: dict = {}
+
+
+def _blend_centroids(scene: PreparedRenderData) -> dict:
+    """Per-blended-batch vertex centroid, cached per positions tuple (sorting key only)."""
+    key = (id(scene.positions), len(scene.positions), id(scene.batches))
+    cached = _CENTROIDS.get(key)
+    if cached is None:
+        import numpy as np
+        blended = [b for b in scene.batches if b.alpha_mode == "BLEND"]
+        cached = {}
+        if blended:
+            points = np.asarray(scene.positions, dtype=np.float64)
+            for b in blended:
+                cached[b.first_vertex] = points[b.first_vertex:b.first_vertex + b.vertex_count].mean(axis=0)
+        if len(_CENTROIDS) > 16:
+            _CENTROIDS.clear()
+        _CENTROIDS[key] = cached
+    return cached
+
+
 def ordered_draw_batches(scenes: tuple[PreparedRenderData, ...], view_matrix):
-    """Opaque first, blended groups back to front, as in JFG Forge."""
+    """Opaque first, blended groups back to front, as in JFG Forge.
+
+    A blended batch sorts by the camera depth of its vertex centroid (equal to the mean of
+    its vertices' depths, because depth is affine in position)."""
     sortable = []
     view_z = view_matrix[2]
     for scene_index, scene in enumerate(scenes):
+        centroids = None
         for batch in scene.batches:
             if batch.alpha_mode == "BLEND":
                 phase = 2
-                points = scene.positions[batch.first_vertex:batch.first_vertex + batch.vertex_count]
-                camera_z = sum(view_z[0]*p[0] + view_z[1]*p[1] +
-                               view_z[2]*p[2] + view_z[3] for p in points) / len(points)
+                if centroids is None:
+                    centroids = _blend_centroids(scene)
+                c = centroids[batch.first_vertex]
+                camera_z = view_z[0] * c[0] + view_z[1] * c[1] + view_z[2] * c[2] + view_z[3]
             else:
                 phase = 0 if batch.depth_write else 1
                 camera_z = 0.0

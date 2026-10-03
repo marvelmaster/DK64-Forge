@@ -20,6 +20,16 @@ Choose the bank, search a name/ID/user, and select a texture for integer-zoom pr
 
 Animation frame selection lives in the Characters and Other models/Levels panels. A frame in this browser is a separate bank entry, linked through its recorded users.
 
+## Preview filtering
+
+- **Default:** the preview shows exact texels at an integer zoom.
+- **Trilinear filtering:** the preview is scaled to 384 pixels on its longest side. A mip chain of
+  2×2 averages is built, the two levels around the scale factor are sampled bilinearly, and the
+  result is blended between them. This is the same scheme as `GL_LINEAR_MIPMAP_LINEAR`.
+
+This is a desktop preview filter. The N64 RDP itself uses three-point filtering and its own LOD
+rules. Exports always write the decoded pixels unchanged.
+
 ## How formats are established
 
 `G_SETTIMG` identifies the image; tile state gives format, dimensions, wrap and shift; texture loads give interleaving; `G_LOADTLUT` identifies CI palettes. Actor eye/mouth frames inherit the slot's usage. Map and prop animation frames inherit their associated draw usage and are recorded in table 7.

@@ -112,6 +112,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._build_information_panel())
         _positions, skeleton = self.preview.bind_pose()
         self.viewport = ModelViewport(preview.render_data, skeleton)
+        self.viewport.set_grid_visible(True)  # ground plane at the Kongs' feet (y = 0)
         # G_TEXTURE_GEN UVs follow the viewer camera, as the RSP does in game.
         self.viewport.set_uv_provider(
             lambda eye, target: self.preview.texgen_uvs(eye, target))
@@ -170,10 +171,33 @@ class MainWindow(QMainWindow):
         self.export_animation_action.triggered.connect(
             lambda _checked=False: self._export(ExportKind.ANIMATED))
         export_menu.addAction(self.export_animation_action)
+        self.export_all_animations_action = QAction("Export All Animations of Current Character...", self)
+        self.export_all_animations_action.triggered.connect(lambda _checked=False: self.export_all_animations())
+        export_menu.addSeparator()
+        export_menu.addAction(self.export_all_animations_action)
         file_menu.addSeparator()
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+
+        view_menu = self.menuBar().addMenu("&View")
+        self.fps_action = QAction("Show FPS Counter", self)
+        self.fps_action.setCheckable(True)
+        self.fps_action.setShortcut(QKeySequence("F3"))
+        self.fps_action.setChecked(ModelViewport.show_fps)
+        self.fps_action.toggled.connect(ModelViewport.set_show_fps_all)
+        view_menu.addAction(self.fps_action)
+        self.trilinear_action = QAction("Trilinear Texture Filtering (3D views)", self)
+        self.trilinear_action.setCheckable(True)
+        self.trilinear_action.setChecked(ModelViewport.trilinear)
+        self.trilinear_action.setToolTip("Mipmapped minification for distant textures; off = bilinear only.")
+        self.trilinear_action.toggled.connect(ModelViewport.set_trilinear_all)
+        view_menu.addAction(self.trilinear_action)
+        self.grid_action = QAction("Ground Grid (Character Preview)", self)
+        self.grid_action.setCheckable(True)
+        self.grid_action.setChecked(True)
+        self.grid_action.toggled.connect(self._set_grid_visible)
+        view_menu.addAction(self.grid_action)
 
     def _build_information_panel(self) -> QWidget:
         panel = QFrame()
@@ -350,8 +374,16 @@ class MainWindow(QMainWindow):
         debug_form.addRow("Rest local XYZ", self.joint_rest_value)
         debug_form.addRow("Geometry", self.joint_geometry_value)
         layout.addLayout(debug_form)
+        self.grid_check = QCheckBox("Show ground grid")
+        self.grid_check.setChecked(True)
+        self.grid_check.setToolTip("Ground plane at y = 0 with the X (red) and Z (blue) axes.")
+        layout.addWidget(self.grid_check)
         self.reset_view_button = QPushButton("Reset View")
         layout.addWidget(self.reset_view_button)
+        self.export_all_button = QPushButton("Export all animations...")
+        self.export_all_button.setToolTip("Export the model plus every clip of the animation list "
+                                          "(the 'Only ... clips' filter applies) as glTF files into one folder.")
+        layout.addWidget(self.export_all_button)
         self.limitations_label = QLabel()
         self.limitations_label.setWordWrap(True)
         layout.addWidget(self.limitations_label)
@@ -373,6 +405,8 @@ class MainWindow(QMainWindow):
         self.view_mode_combo.currentIndexChanged.connect(self._select_view_mode)
         self.joint_combo.currentIndexChanged.connect(self._select_joint)
         self.reset_view_button.clicked.connect(lambda _checked=False: self.viewport.reset_view())
+        self.grid_check.toggled.connect(self._set_grid_visible)
+        self.export_all_button.clicked.connect(lambda _checked=False: self.export_all_animations())
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setMinimumWidth(300)
@@ -737,6 +771,48 @@ class MainWindow(QMainWindow):
     def _navigate_animation(self, offset: int) -> None:
         self.animation_combo.setCurrentIndex(
             (self.animation_combo.currentIndex() + offset) % self.animation_combo.count())
+
+    def _set_grid_visible(self, visible: bool) -> None:
+        self.viewport.set_grid_visible(visible)
+        for control in (getattr(self, "grid_check", None), getattr(self, "grid_action", None)):
+            if control is not None and control.isChecked() != visible:
+                with QSignalBlocker(control):
+                    control.setChecked(visible)
+
+    def export_all_jobs(self):
+        """(label, job) pairs: the static model and every listed clip (model + animation)."""
+        spec = self.source.character
+        source = self.source
+        stem = f"{spec.key}" + ("" if spec.variant == "normal" else f"_{spec.variant}")
+        hair = spec.key == "tiny" and self.hair_check.isChecked()
+        jobs = [(f"{spec.display_name} model",
+                 lambda folder: export_gltf(source, folder / f"{stem}_static_textured.gltf", ExportKind.STATIC_TEXTURED))]
+        for row in range(self.animation_combo.count()):
+            animation_id = self.animation_combo.itemData(row)
+            if animation_id is None:
+                continue
+            label = self.animation_combo.itemText(row)
+            name = f"{stem}_anim_{animation_id:04X}_" + "".join(
+                c if c.isalnum() else "_" for c in label.split("—")[-1].strip())[:40].strip("_")
+
+            def job(folder: Path, animation_id=animation_id, name=name):
+                path = folder / f"{name}.gltf"
+                if hair:
+                    return export_gltf(source, path, ExportKind.ANIMATED, animation_id=animation_id, procedural_hair=True)
+                if self._is_reference(animation_id):
+                    return export_gltf(source, path, ExportKind.ANIMATED)
+                return export_gltf(source, path, ExportKind.ANIMATED, animation_id=animation_id)
+            jobs.append((label, job))
+        return jobs
+
+    def export_all_animations(self, folder: Path | None = None):
+        from .batch_export import export_all
+        self._pause()
+        result = export_all(self, f"Export {self.source.character.display_name} animations",
+                            self.export_all_jobs(), folder)
+        if result is not None:
+            self.statusBar().showMessage(result.summary(), 15000)
+        return result
 
     def _select_view_mode(self, _index: int = -1) -> None:
         self.viewport.set_view_mode(ViewMode(self.view_mode_combo.currentData()))

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from .core import mesh_decoder, rom_model, texture_bank, texture_animation
 from .render_data import PreparedBatch, PreparedRenderData, PreparedTexture
 
@@ -46,15 +48,28 @@ class TextureCache:
         return self._pixels[key]
 
 
+_TEXTURE_ALPHA: dict = {}
+
+
+def _texture_alpha_mode(rgba: bytes) -> str:
+    """OPAQUE / MASK / BLEND from a texture's alpha values (cached per pixel buffer)."""
+    key = id(rgba)
+    cached = _TEXTURE_ALPHA.get(key)
+    if cached is None or cached[0] is not rgba:
+        alphas = set(np.unique(np.frombuffer(rgba, dtype=np.uint8)[3::4]).tolist())
+        mode = ("MASK" if 0 in alphas else "OPAQUE") if alphas <= {0, 255} else "BLEND"
+        if len(_TEXTURE_ALPHA) > 4096:
+            _TEXTURE_ALPHA.clear()
+        cached = _TEXTURE_ALPHA[key] = (rgba, mode)
+    return cached[1]
+
+
 def _alpha_mode(rgba: bytes | None, corner_alpha: float) -> str:
     if corner_alpha < 0.999:
         return "BLEND"
     if rgba is None:
         return "OPAQUE"
-    alphas = set(rgba[3::4])
-    if alphas <= {0, 255}:
-        return "MASK" if 0 in alphas else "OPAQUE"
-    return "BLEND"
+    return _texture_alpha_mode(rgba)
 
 
 def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache) -> StaticModel:

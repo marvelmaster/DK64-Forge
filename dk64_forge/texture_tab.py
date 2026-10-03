@@ -26,6 +26,9 @@ SHOW_USED, SHOW_UNUSED, SHOW_PALETTES = "Used by a model or map", "Unused (no re
 SORT_NUMBER, SORT_NAME, SORT_SIZE = "Number", "Name", "Byte size"
 
 
+PREVIEW_SIZE = 384  # longest side of the preview in screen pixels
+
+
 def filter_items(items, text: str = "", show: str = SHOW_ALL, sort: str = SORT_NUMBER,
                  decodable=None):
     """Pure list filter (tested without Qt)."""
@@ -159,13 +162,18 @@ class TextureTab(QWidget):
         self.format_combo.currentIndexChanged.connect(self._manual_changed)
         self.interleave_check.toggled.connect(self._manual_changed)
         self.guess_check = QCheckBox("Preview unreferenced data as RGBA16 rows of 32 texels (GUESS)")
+        self.trilinear_check = QCheckBox("Trilinear filtering (smooth, mipmapped preview)")
+        self.trilinear_check.setToolTip("Off: integer zoom showing exact texels. On: the texture is scaled "
+                                        "to the preview size with mipmaps and bilinear interpolation "
+                                        "(preview only; exports keep the original pixels).")
         self.export_button = QPushButton("Export PNG...")
-        self.export_all_button = QPushButton("Export shown list as PNG files...")
-        for widget in (self.guess_check, self.export_button, self.export_all_button):
+        self.export_all_button = QPushButton("Export all shown as PNG...")
+        for widget in (self.trilinear_check, self.guess_check, self.export_button, self.export_all_button):
             layout.addWidget(widget)
         self.export_button.setEnabled(False)
         self.export_all_button.setEnabled(False)
         self.guess_check.toggled.connect(lambda _on: self._current and self.show_item(self._current))
+        self.trilinear_check.toggled.connect(lambda _on: self._current and self.show_item(self._current))
         self.export_button.clicked.connect(self._export_current)
         self.export_all_button.clicked.connect(self._export_shown)
         return area
@@ -272,11 +280,19 @@ class TextureTab(QWidget):
         if self.manual_check.isChecked():
             self.format_value.setText(self.format_combo.currentText() + " (manual settings; unverified)")
         self._current_rgba = decoded
-        image = QImage(rgba, width, height, width * 4, QImage.Format.Format_RGBA8888).copy()
-        zoom = max(1, min(16, 384 // max(width, height)))
-        pixmap = QPixmap.fromImage(image).scaled(width * zoom, height * zoom,
-                                                 Qt.AspectRatioMode.KeepAspectRatio,
-                                                 Qt.TransformationMode.FastTransformation)
+        if self.trilinear_check.isChecked():
+            from .core.texture_filter import resample
+            scale = PREVIEW_SIZE / max(width, height)
+            out_w, out_h = max(1, round(width * scale)), max(1, round(height * scale))
+            pixels = resample(rgba, width, height, out_w, out_h, "trilinear")
+            pixmap = QPixmap.fromImage(QImage(pixels, out_w, out_h, out_w * 4,
+                                              QImage.Format.Format_RGBA8888).copy())
+        else:
+            image = QImage(rgba, width, height, width * 4, QImage.Format.Format_RGBA8888).copy()
+            zoom = max(1, min(16, PREVIEW_SIZE // max(width, height)))
+            pixmap = QPixmap.fromImage(image).scaled(width * zoom, height * zoom,
+                                                     Qt.AspectRatioMode.KeepAspectRatio,
+                                                     Qt.TransformationMode.FastTransformation)
         self.image_label.setText("")
         self.image_label.setPixmap(pixmap)
         self.export_button.setEnabled(True)
@@ -314,22 +330,28 @@ class TextureTab(QWidget):
             Path(filename).write_bytes(texture_bank.rgba_png(width, height, rgba))
             self.status_message.emit(f"Exported {filename}")
 
-    def _export_shown(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Export shown textures to folder")
-        if not folder:
-            return
-        written = skipped = 0
-        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            for item in self.shown():
+    def export_jobs(self, items=None):
+        """(label, job) pairs writing each shown, decodable texture as a PNG."""
+        if items is None:
+            items = self.shown()
+        jobs = []
+        for item in items:
+            def job(folder: Path, item=item):
                 decoded = texture_bank.decode_item(self._rom, item)
                 if decoded is None:
-                    skipped += 1
-                    continue
+                    raise ValueError("not decodable")
                 width, height, rgba = decoded
-                (Path(folder) / (safe_file_stem(item) + ".png")).write_bytes(
-                    texture_bank.rgba_png(width, height, rgba))
-                written += 1
-        finally:
-            QGuiApplication.restoreOverrideCursor()
-        QMessageBox.information(self, "Textures", f"Exported {written} PNG files ({skipped} not decodable).")
+                (folder / (safe_file_stem(item) + ".png")).write_bytes(texture_bank.rgba_png(width, height, rgba))
+            jobs.append((item.name, job))
+        return jobs
+
+    def export_all(self, folder: Path | None = None):
+        from .batch_export import export_all
+        self.ensure_loaded()
+        result = export_all(self, "Export textures", self.export_jobs(), folder)
+        if result is not None:
+            self.status_message.emit(result.summary() + (f" ({len(result.failed)} not decodable)" if result.failed else ""))
+        return result
+
+    def _export_shown(self) -> None:
+        self.export_all()

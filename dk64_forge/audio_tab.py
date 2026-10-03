@@ -348,6 +348,10 @@ class AudioPage(QWidget):
         export_row.addWidget(self.wav_button)
         export_row.addWidget(self.mp3_button)
         right_layout.addLayout(export_row)
+        self.export_all_button = QPushButton("Export all shown as WAV...")
+        self.export_all_button.setToolTip("Render and export every entry of the current list "
+                                          "(search and filters apply) as WAV files into one folder.")
+        right_layout.addWidget(self.export_all_button)
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
         right_layout.addWidget(self.status_label)
@@ -364,6 +368,7 @@ class AudioPage(QWidget):
         self.volume_slider.valueChanged.connect(lambda value: self._player.set_volume(value / 100.0))
         self.wav_button.clicked.connect(lambda: self.export_current("wav"))
         self.mp3_button.clicked.connect(lambda: self.export_current("mp3"))
+        self.export_all_button.clicked.connect(lambda _checked=False: self.export_all())
         self.progress.seek_requested.connect(self._scrub)
         self._player.position.connect(self._position)
         self._player.finished.connect(self._playback_finished)
@@ -533,6 +538,37 @@ class AudioPage(QWidget):
             self.progress.setValue(0)
 
     # ------------------------------------------------------------------ export
+    def shown_entries(self) -> list[AudioEntry]:
+        return filter_entries(
+            self._entries,
+            text=self.search_edit.text(),
+            only_looping=bool(self.filter_check and self.filter_check.isChecked()
+                              and "loop" in self.filter_check.text().lower()),
+            hide_unplayable=True,
+        )
+
+    def export_jobs(self, entries=None, kind: str = "wav"):
+        """(label, job) pairs rendering and writing each entry (not kept in the play cache)."""
+        if entries is None:
+            entries = self.shown_entries()
+        jobs = []
+        for entry in entries:
+            def job(folder: Path, index=entry.index):
+                audio = self._cache.get(index) or self._render(index)
+                if audio is None:
+                    raise RuntimeError("this entry has no sample")
+                export_audio(folder / f"{self._default_name(index)}.{kind}", audio)
+            jobs.append((entry.label.split("   ")[0], job))
+        return jobs
+
+    def export_all(self, folder: Path | None = None, kind: str = "wav"):
+        from .batch_export import export_all
+        self._player.stop()
+        result = export_all(self, f"Export {self.title.lower()}", self.export_jobs(kind=kind), folder)
+        if result is not None:
+            self.status_label.setText(result.summary() + ".")
+        return result
+
     def export_current(self, kind: str) -> None:
         if self._current is None:
             QMessageBox.information(self, "DK64 Forge", "Select an entry to export first.")
