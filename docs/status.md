@@ -33,6 +33,11 @@ Browser clips are structurally compatible; that alone does not establish ownersh
 - Low-poly entries 2/4/7/10/14 retain the corresponding Kong skeleton mappings. DK's bongos use actor entry `0xA5`, attached at scale 1.25; their independent actor animation is not automatically synchronized with DK.
 - ROM parsing found 222 prop and 74 map texture-animation descriptors. Animated frames use table 7 according to the loader; static geometry images use table 25. The previous size-based table fallback has been removed. Map segment bindings are resolved per chunk, including shared group 255, following `8062EDA8` / `80655DD0`.
 - Japes has 428 setup props, 50 setup actors and 29 character spawners. Missing/unsupported prop geometry is represented by markers.
+- Map chunk pieces (2026-10-03):
+  - Every `G_ENDDL`-terminated piece of a chunk display list is drawn, and each piece gets its own segment-6 base.
+  - Two addressing conventions exist: *relative* (354 chunks) and *absolute* (186 chunks). 360 shared sub-lists are drawn through their callers only.
+  - This fixes the misjoined dark panels in Funky's store and other interiors, and draws about 50 % more map geometry that was previously missing.
+  - The per-piece vertex rule is structural. The game's sub-record loader is not traced.
 - Actor meshes (2026-10-03):
   - Setup actors resolve behaviour + 0x10 in `D_global_asm_8074E8B0`; character spawners index `D_global_asm_8075EB80` by enemy value. Both tables come from the ROM, and the names match their models. Across all maps 697 of 819 setup actors and 1,201 of 1,272 spawns have a model.
   - Every actor starts at 0.15 scale (`func_global_asm_806134B4`). Setup scale × 0.15 is from `code_8D3E0.c`; spawner byte × 5 / 255 × 0.15 was read from `func_global_asm_80726744`'s MIPS code.
@@ -58,6 +63,6 @@ Only the captured interior interval of DK Entry 4 establishes 30 adjusted units/
 
 ## Validation
 
-Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **111 passing tests**, for **238 total**. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. No emulator was running for a new game-to-viewer comparison.
+Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **113 passing tests**, for **240 total**. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. No emulator was running for a new game-to-viewer comparison.
 
 Tab details: [models.md](models.md), [textures.md](textures.md), [audio.md](audio.md).

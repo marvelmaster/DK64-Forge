@@ -105,13 +105,19 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
     mesh = StaticMesh()
     tables = _TextureTables(rom)
     unsupported: dict[str, int] = {}
+    state = None
     for item in ranges:
         start, end, segments = item[:3]
         range_dynamic = dynamic
-        if dynamic_groups is not None and len(item) == 4:
+        if dynamic_groups is not None and len(item) >= 4:
             range_dynamic = dict(dynamic_groups.get(255, {}))
             range_dynamic.update(dynamic_groups.get(item[3], {}))
-        state = _State()
+        if state is not None and len(item) >= 5 and item[4]:
+            # Next piece of the same display list: RDP/RSP state carries over on the
+            # console; only the vertices are reloaded from the piece's own block.
+            state.cache = [None] * SLOTS
+        else:
+            state = _State()
         offset = (0.0, 0.0, 0.0)
         current_bone = 0
         stack = [(start, end)]
@@ -330,22 +336,95 @@ def prop_ranges(data: bytes):
     return ranges
 
 
-def map_ranges(data: bytes, *, with_chunk: bool = False):
-    """Map geometry: per chunk up to four display lists using the chunk's vertex block."""
+def _list_pieces(data: bytes, begin: int, size: int):
+    """A chunk display list holds one or more G_ENDDL-terminated pieces back to back."""
+    pieces, at = [], begin
+    for pc in range(begin, min(begin + size, len(data)) - 7, 8):
+        if data[pc] == 0xDF:
+            pieces.append((at, pc + 8))
+            at = pc + 8
+    if at < begin + size:
+        pieces.append((at, begin + size))
+    return pieces
+
+
+def _vertex_extent(data: bytes, begin: int, end: int, dl_start: int, seen=None) -> int:
+    """Bytes of segment-6 vertex data a piece loads, following its segment-7 sub-lists."""
+    seen = set() if seen is None else seen
+    extent, pc = 0, begin
+    while pc + 8 <= min(end, len(data)):
+        op = data[pc]
+        if op == 0x01 and data[pc + 4] == 6:
+            count = (int.from_bytes(data[pc:pc + 4], "big") >> 12) & 0xFF
+            extent = max(extent, int.from_bytes(data[pc + 5:pc + 8], "big") + 16 * count)
+        elif op == 0xDE and data[pc + 4] == 7:
+            target = dl_start + int.from_bytes(data[pc + 5:pc + 8], "big")
+            if target not in seen:
+                seen.add(target)
+                extent = max(extent, _vertex_extent(data, target, len(data), dl_start, seen))
+            if data[pc + 1]:  # branch: no return
+                break
+        elif op == 0xDF:
+            break
+        pc += 8
+    return extent
+
+
+def map_ranges(data: bytes, *, with_chunk: bool = False, stats: dict | None = None):
+    """Map geometry: per chunk up to four display lists, each one or more pieces.
+
+    A chunk display list holds one or more G_ENDDL-terminated pieces back to back, all
+    drawn (the game binds them through per-piece sub-records, ``func_global_asm_80656B98``).
+    Segment 6 is the chunk's vertex block and segment 7 the DL start. Chunks use one of
+    two vertex addressing conventions, distinguished structurally:
+
+    * **relative**: every piece addresses its vertices from 0 and the pieces' blocks follow
+      each other in display-list order; the summed piece extents equal the chunk's
+      vertex size while no single piece reaches its end (e.g. Funky's store, map 1);
+    * **absolute**: pieces address the whole chunk block (extents grow to the block size,
+      e.g. Japes); all pieces share the chunk base.
+
+    Pieces that another piece calls through segment 7 are shared sub-lists: they are
+    drawn through their caller only, not a second time on their own.
+
+    ``stats`` (optional) counts the chunks per convention and the skipped sub-lists.
+    """
     dl_start = int.from_bytes(data[0x34:0x38], "big")
     vertex_start = int.from_bytes(data[0x38:0x3C], "big")
     chunk_start = int.from_bytes(data[0x68:0x6C], "big")
     chunk_end = int.from_bytes(data[0x6C:0x70], "big")
-    ranges = []
+    ranges, chunks = [], []
     for chunk, at in enumerate(range(chunk_start, chunk_end - 51, 52)):
         words = [int.from_bytes(data[at + k:at + k + 4], "big") for k in range(12, 52, 4)]
-        vertex_offset = words[8]
+        vertex_offset, vertex_size = words[8], words[9]
+        pieces = []
         for dl_offset, size in zip(words[0:8:2], words[1:8:2]):
             if dl_offset == 0xFFFFFFFF or size == 0:
                 continue
-            begin = dl_start + dl_offset
-            row = (begin, begin + size, {6: vertex_start + vertex_offset, 7: dl_start})
-            ranges.append(row + (chunk,) if with_chunk else row)
+            for index, (begin, end) in enumerate(_list_pieces(data, dl_start + dl_offset, size)):
+                pieces.append((begin, end, index > 0, _vertex_extent(data, begin, end, dl_start)))
+        if not pieces:
+            continue
+        extents = [piece[3] for piece in pieces]
+        relative = (len(pieces) > 1 and sum(extents) == vertex_size and max(extents) < vertex_size)
+        if stats is not None:
+            key = "relative_chunks" if relative else "absolute_chunks"
+            stats[key] = stats.get(key, 0) + 1
+        used = 0
+        for begin, end, continued, extent in pieces:
+            base = used if relative else 0
+            used += extent
+            row = (begin, end, {6: vertex_start + vertex_offset + base, 7: dl_start})
+            chunks.append(row + (chunk, continued) if with_chunk else row)
+    called = {dl_start + int.from_bytes(data[pc + 5:pc + 8], "big")
+              for row in chunks for pc in range(row[0], row[1] - 7, 8)
+              if data[pc] == 0xDE and data[pc + 4] == 7}
+    for row in chunks:
+        if row[0] in called:
+            if stats is not None:
+                stats["shared_sublists"] = stats.get("shared_sublists", 0) + 1
+            continue
+        ranges.append(row)
     return ranges
 
 

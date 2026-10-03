@@ -41,7 +41,18 @@ The list records type, object ID and coordinates. Placement rotation order for p
 
 Both decoders preserve ROM colour-combiner, cycle, primitive/environment, key and LOD state. The viewport evaluates one/two-cycle `(A-B)*C+D` RGB/alpha inputs, supports separate texture inputs/UVs for the generic decoder, and reads contiguous RGBA16 ROM mip levels. Lighting uses a fixed directional preview light, including shade-only clothing. Full RSP lighting, TMEM, coverage/blender/dither, fog and bit-exact LOD/rounding remain open. Standard glTF cannot express the complete RDP pipeline; exports keep the mux in metadata and use approximate PBR materials.
 
-Geometry uses F3DEX2 vertex/texture/tile commands. Actor segment 3 points at vertices; segment 4 matrices select bone rest offsets and rigid joints. Prop segment 8 points at header `0x48`. Map chunks are 52-byte records from `0x68`, with vertices on segment 6 and shared sublists on segment 7. Conditional Kong blocks use hand-state masks; other actors use the generic all-blocks mask.
+Geometry uses F3DEX2 vertex/texture/tile commands. Actor segment 3 points at vertices; segment 4 matrices select bone rest offsets and rigid joints. Prop segment 8 points at header `0x48`. Map chunks are 52-byte records from `0x68`, with vertices on segment 6 and shared sublists on segment 7.
+
+**Chunk pieces.** A chunk's up to four display lists each hold one or more `G_ENDDL`-terminated pieces back to back, and every piece is drawn. Pieces that another piece calls through segment 7 are shared sub-lists; they are drawn through their caller only. Chunks address vertices in one of two ways:
+
+- **Relative** (e.g. Funky's store): every piece starts at vertex 0 of its own block, and the blocks follow each other in display-list order.
+- **Absolute** (e.g. Japes): all pieces index the whole chunk block.
+
+Forge tells them apart structurally. Relative is detected when the piece extents add up exactly to the chunk's vertex size and no single piece reaches its end.
+
+Treating relative chunks as absolute caused the dark, misjoined panels seen before 2026-10-03. Drawing only the first piece of each list hid about a third of all map geometry: 187k triangles before, 284k now across all maps.
+
+The game binds a segment-6 pointer per piece through sub-records (`func_global_asm_80656B98`). The loader code that fills those pointers has not been traced, so the rule is structural evidence. Conditional Kong blocks use hand-state masks; other actors use the generic all-blocks mask.
 
 Static images use table 25. Map and prop animation descriptors explicitly identify table-7 frames; this is traced loader behavior, replacing the previous size heuristic. Prop descriptors are at header `0x6C` with `0x84`-byte rows; map descriptors are at `0x48` with `0x7C`-byte rows. Prop blend flags are read but fractional frame blending is not implemented.
 
