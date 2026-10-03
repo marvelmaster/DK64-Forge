@@ -124,12 +124,12 @@ The JFG feature-parity milestone is complete. See [status and open work](docs/st
 
 Experimental research tool. Preview lighting is a fixed key light; full N64 TMEM, blender/fog and
 rounding are not reproduced. Generic actor clips establish structural compatibility rather than
-ownership; prop skeletal animation remains open. Eye/mouth frames are selectable but gameplay
+ownership; embedded prop matrix tracks and billboard quads are supported. Eye/mouth frames are selectable; automatic Kong blinking uses repeatable preview randomness. Other gameplay
 scripts are not simulated. Tiny has an optional source-derived hair diagnostic with approximate
 world/anchor inputs. Most animation timing uses a diagnostic 30 units/s rate, and ordinary runtime
 adjustments/world placement remain omitted. View-dependent highlight exports use a fixed camera.
 Level actors use their assigned rest-pose meshes; missing models and unsupported props use markers.
-Spawn simulation and chunk visibility remain open.
+Fungi night substitutions and individual chunk inspection are available; general spawn simulation and game portal visibility remain open.
 Songs omit chorus and mid-note pitch bends; SFX use their samples' own pitch and volume.
 
 ## Legal and license

@@ -123,8 +123,10 @@ def placed_render(render, placement):
     rx = np.array(((1, 0, 0), (0, cx, -sx), (0, sx, cx)))
     ry = np.array(((cy, 0, sy), (0, 1, 0), (-sy, 0, cy)))
     rz = np.array(((cz, -sz, 0), (sz, cz, 0), (0, 0, 1)))
-    points = np.asarray(render.positions) @ (ry @ rx @ rz).T * placement.scale + placement.position
+    rotation = np.eye(3) if any(b.billboard_center is not None for b in render.batches) else rz @ ry @ rx
+    points = np.asarray(render.positions) @ rotation.T * placement.scale + placement.position
     return replace(render, positions=tuple(tuple(float(v) for v in p) for p in points),
+                   batches=tuple(replace(b, billboard_center=placement.position) if b.billboard_center is not None else b for b in render.batches),
                    bounds_minimum=tuple(points.min(axis=0)), bounds_maximum=tuple(points.max(axis=0)))
 
 
@@ -151,23 +153,46 @@ def actor_entry(tables, placement):
     return definition.table5_entry if definition else None
 
 
-def content_render(rom, map_id, cache, *, tick=0):
+def content_render(rom, map_id, cache, *, tick=0, night=False, hidden=(), models=None):
     rows = placements(rom, map_id)
+    if night and map_id == 48:
+        from .core.control_states import global_asm_data, GLOBAL_ASM_DATA_VRAM
+        data = global_asm_data(rom)
+        at = 0x80755698 - GLOBAL_ASM_DATA_VRAM
+        swaps = {28: 0x63, 9: 0x54, 44: 0x67}
+        rows = tuple(replace(row, type_id=swaps[row.type_id])
+                     if row.kind == "character spawn" and row.type_id in swaps and data[at + row.type_id] != 10
+                     else row for row in rows)
+    rows = tuple(row for row in rows if (row.kind, row.index) not in hidden)
     tables = load_actor_tables(rom)
     props, actors, scenes, missing = {}, {}, [], []
+    models = {} if models is None else models
     for row in rows:
         if row.kind == "prop":
             if row.type_id not in props:
-                props[row.type_id] = static_model.prop_model(rom, row.type_id, cache, tick=tick)
+                data = texture_bank.table_entry(rom, 4, row.type_id)
+                from .core.texture_animation import prop_animations
+                dynamic = bool(data and prop_animations(data))
+                key = ("prop", row.type_id, tick if dynamic else 0)
+                if key not in models:
+                    models[key] = static_model.prop_model(rom, row.type_id, cache, tick=tick)
+                props[row.type_id] = models[key]
             model = props[row.type_id]
         else:
             entry = actor_entry(tables, row)
             if entry is not None and entry not in actors:
-                actors[entry] = static_model.actor_model(rom, entry, cache)
+                key = ("actor", entry, 0)
+                if key not in models:
+                    models[key] = static_model.actor_model(rom, entry, cache)
+                actors[entry] = models[key]
             model = actors.get(entry)
         if model and model.triangles:
             scenes.append(placed_render(model.render, row))
         else:
             missing.append(row)
             scenes.append(spawn_marker(row))
+    # Animated frames are transient; retain only the current tick and static models.
+    for key in tuple(models):
+        if key[0] == "prop" and key[2] not in (0, tick):
+            del models[key]
     return merge_render(scenes), rows, tuple(missing)

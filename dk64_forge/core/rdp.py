@@ -13,6 +13,19 @@ def decode_mux(w0: int, w1: int) -> tuple[int, ...]:
             (w1 >> 21) & 7, (w1 >> 3) & 7, (w1 >> 18) & 7, w1 & 7)
 
 
+def opaque_alpha(material, shade: float = 1.0) -> float:
+    """Preview alpha for opaque texels, used to classify material transparency."""
+    if material.mux is None or material.cycle in (2, 3):
+        return shade
+    combined = 0.0
+    for cycle in range(2 if material.cycle == 1 else 1):
+        a, b, c, d = material.mux[cycle*8+4:cycle*8+8]
+        inputs = (combined, 1., 1., material.primitive[3], shade, material.environment[3], 1., 0.)
+        multiplier = 0.0 if c == 0 else material.prim_lod if c == 6 else inputs[c]
+        combined = (inputs[a] - inputs[b]) * multiplier + inputs[d]
+    return max(0., min(1., combined))
+
+
 @dataclass(frozen=True)
 class MaterialState:
     mux: tuple[int, ...] | None = None

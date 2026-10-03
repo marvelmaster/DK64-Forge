@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .core import mesh_decoder, rom_model, texture_bank, texture_animation
+from .core import mesh_decoder, rom_model, texture_bank, texture_animation, prop_animation
 from .render_data import PreparedBatch, PreparedRenderData, PreparedTexture
 
 WRAP_NAMES = {0: "REPEAT", 1: "MIRROR", 2: "CLAMP", 3: "CLAMP"}
@@ -43,7 +43,7 @@ class TextureCache:
             raw = texture_bank.table_entry(self.rom, texture.table, texture.image)
             palette = None
             if texture.usage.palette is not None:
-                palette = texture_bank.table_entry(self.rom, 25, texture.usage.palette)
+                palette = texture_bank.table_entry(self.rom, texture.table, texture.usage.palette)
             self._pixels[key] = texture_bank.decode(raw, texture.usage, palette) if raw else None
         return self._pixels[key]
 
@@ -72,7 +72,7 @@ def _alpha_mode(rgba: bytes | None, corner_alpha: float) -> str:
     return _texture_alpha_mode(rgba)
 
 
-def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache) -> StaticModel:
+def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache, *, blends=None) -> StaticModel:
     """Group triangles by texture and culling into batches; decode each texture once."""
     texture_ids: dict = {}
     textures: list[PreparedTexture] = []
@@ -83,6 +83,15 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache) -> StaticMod
             return None
         if texture not in texture_ids:
             rgba = cache.pixels(texture)
+            blend = (blends or {}).get((texture.table, texture.image))
+            if rgba is not None and blend is not None:
+                from dataclasses import replace
+                image, fraction = blend
+                other = cache.pixels(replace(texture, image=image))
+                if other is not None and len(other) == len(rgba):
+                    a = np.frombuffer(rgba, dtype=np.uint8).astype(float)
+                    b = np.frombuffer(other, dtype=np.uint8)
+                    rgba = np.rint(a * (1 - fraction) + b * fraction).astype(np.uint8).tobytes()
             if rgba is None:
                 texture_ids[texture] = None
                 missing.add(texture.image)
@@ -90,7 +99,7 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache) -> StaticMod
                 texture_ids[texture] = len(textures)
                 textures.append(PreparedTexture(len(textures), texture.usage.width, texture.usage.height, rgba,
                     WRAP_NAMES[texture.wrap_s & 3], WRAP_NAMES[texture.wrap_t & 3],
-                    texture_bank.decode_mip_levels(texture_bank.table_entry(cache.rom, texture.table, texture.image) or b"", texture.usage)))
+                    () if blend else texture_bank.decode_mip_levels(texture_bank.table_entry(cache.rom, texture.table, texture.image) or b"", texture.usage)))
         return texture_ids[texture]
 
     for triangle, (texture, culled) in enumerate(zip(mesh.textures, mesh.culled)):
@@ -98,7 +107,8 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache) -> StaticMod
         texture1_index = texture_id(mesh.secondary_textures[triangle]) if mesh.secondary_textures else None
         alpha = min(mesh.colors[3 * triangle + k][3] for k in range(3))
         rgba = textures[texture_index].rgba if texture_index is not None else None
-        mode = _alpha_mode(rgba, alpha)
+        material = mesh.materials[triangle] if mesh.materials else mesh_decoder.rdp.MaterialState()
+        mode = _alpha_mode(rgba, mesh_decoder.rdp.opaque_alpha(material, alpha))
         fallback = (MISSING_TEXTURE_RGBA if texture is not None and texture_index is None
                     else UNTEXTURED_RGBA)
         keyed.setdefault((texture_index, not culled, mode, fallback, mesh.materials[triangle] if mesh.materials else mesh_decoder.rdp.MaterialState(), texture1_index), []).append(triangle)
@@ -132,19 +142,31 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache) -> StaticMod
                        mesh.stats.get("unsupported", {}), tuple(joints))
 
 
-def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None) -> StaticModel | None:
+def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None, track: int | None = None, speed: int = 1, texture_playback: bool = True) -> StaticModel | None:
     data = texture_bank.table_entry(rom, 4, entry)
     if not data or len(data) < 0x50:
         return None
     animations = texture_animation.prop_animations(data)
-    overrides = {a.key: (a.table, a.image(frame if tick is None else tick // a.ticks_per_frame)) for a in animations}
-    return render_data(mesh_decoder.decode(data, mesh_decoder.prop_ranges(data), rom=rom, image_overrides=overrides), cache)
+    texture_tick = tick if texture_playback else None
+    overrides = {a.key: (a.table, a.image(frame if texture_tick is None else texture_tick // a.ticks_per_frame)) for a in animations}
+    blends = {(a.table, a.image(tick // a.ticks_per_frame)): (a.image(tick // a.ticks_per_frame + 1), (tick % a.ticks_per_frame) / a.ticks_per_frame)
+              for a in animations if texture_tick is not None and a.interpolate}
+    if data[0x1C] == 2:
+        from dataclasses import replace
+        from .core import billboards
+        model = render_data(billboards.decode(data, overrides), cache, blends=blends)
+        return replace(model, render=replace(model.render,
+                       batches=tuple(replace(batch, billboard_center=(0., 0., 0.)) for batch in model.render.batches)))
+    rig = prop_animation.parse(data)
+    matrices = rig.pose(track, tick or 0, speed) if rig else None
+    return render_data(mesh_decoder.decode(data, mesh_decoder.prop_ranges(data), rom=rom,
+                                         image_overrides=overrides, matrices=matrices), cache, blends=blends)
 
 
 MAP_SCALE = 1.0 / 3.0  # world units per map vertex unit (guScale in the map loader)
 
 
-def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None) -> StaticModel | None:
+def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None, chunks=None) -> StaticModel | None:
     data = texture_bank.table_entry(rom, 1, entry)
     if not data or len(data) < 0x140 or data[2:4] == b"\x08\x00":
         return None
@@ -153,12 +175,19 @@ def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, ti
     for animation in animations:
         sample = frame if tick is None else tick // animation.ticks_per_frame
         groups.setdefault(animation.group, {})[animation.key] = (animation.image(sample),)
-    mesh = mesh_decoder.decode(data, mesh_decoder.map_ranges(data, with_chunk=True),
+    ranges = mesh_decoder.map_ranges(data, with_chunk=True)
+    if chunks is not None:
+        ranges = [row for row in ranges if row[3] in chunks]
+    from .core.map_effects import append_geometry
+    data, effect_ranges, unsupported_effects = append_geometry(data, entry, tick or 0, chunks)
+    mesh = mesh_decoder.decode(data, ranges + effect_ranges,
                                rom=rom, dynamic_groups=groups, dynamic_table=7)
     # The map loader func_global_asm_80650ECC draws map geometry through
     # guScale(mtx, 1/3, 1/3, 1/3) (constant at 0x80758C60, read from the ROM's code), so map
     # vertices are three times world units; setup objects and spawns use world units.
     mesh.positions = [(x * MAP_SCALE, y * MAP_SCALE, z * MAP_SCALE) for x, y, z in mesh.positions]
+    for effect in unsupported_effects:
+        mesh.stats["unsupported"][f"Procedural effect {effect}"] = 1
     return render_data(mesh, cache)
 
 
@@ -242,9 +271,10 @@ def export_glb(model: StaticModel, path, name: str) -> dict:
             "POSITION": add_accessor([render.positions[i] for i in corners], "VEC3", 3, True),
             "COLOR_0": add_accessor([render.colors[i] for i in corners], "VEC4", 4),
         }
-        material = {"extras": {"dk64_rdp_material": batch.material.json(), "material_policy": "glTF approximation; RDP mux retained as metadata"}, "name": f"material_{len(materials)}", "doubleSided": batch.double_sided,
+        material = {"extras": {"billboard_center": batch.billboard_center, "dk64_rdp_material": batch.material.json(), "material_policy": "glTF approximation; RDP mux retained as metadata"}, "name": f"material_{len(materials)}", "doubleSided": batch.double_sided,
                     "alphaMode": batch.alpha_mode,
-                    "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0}}
+                    "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0,
+                                              "baseColorFactor": [1., 1., 1., mesh_decoder.rdp.opaque_alpha(batch.material)]}}
         if batch.alpha_mode == "MASK":
             material["alphaCutoff"] = 0.5
         if batch.texture1_index is not None:

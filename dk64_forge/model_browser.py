@@ -95,6 +95,7 @@ class ModelBrowserTab(QWidget):
         self._current: tuple[BrowserEntry, static_model.StaticModel] | None = None
         self.viewport = None
         self._content = None
+        self._content_models = {}
         self._actor_animations = None
         self._animation_assets = None
         self._scene_tick = 0
@@ -172,14 +173,33 @@ class ModelBrowserTab(QWidget):
         self.clip_export.clicked.connect(self._export_actor_clip)
         layout.addWidget(self.clip_export)
         for widget in (self.load_clips_button, self.clip_combo, self.clip_frame, self.clip_export):
-            widget.setVisible(KIND_ACTOR in self._kinds)
+            widget.setVisible(KIND_ACTOR in self._kinds or KIND_PROP in self._kinds)
+        self.prop_speed = QSpinBox()
+        self.prop_speed.setRange(1, 300)
+        self.prop_speed.setValue(1)
+        self.prop_speed.setPrefix("Prop script speed ")
+        self.prop_speed.setToolTip("Runtime track multiplier; object scripts choose it in the game. Preview loops the selected track forward.")
+        self.prop_speed.setVisible(KIND_PROP in self._kinds)
+        self.prop_speed.valueChanged.connect(lambda: self._show_actor_frame(self.clip_frame.value()))
+        layout.addWidget(self.prop_speed)
         self.scene_play = QPushButton("Play")
         self.scene_play.clicked.connect(self._toggle_scene_play)
         layout.addWidget(self.scene_play)
-        self.content_check = QCheckBox("Show placed props and actor spawn markers")
+        self.content_check = QCheckBox("Show placed props and actor spawns")
         self.content_check.setVisible(KIND_MAP in self._kinds)
         self.content_check.toggled.connect(self._level_content_changed)
         layout.addWidget(self.content_check)
+        self.night_check = QCheckBox("Fungi Forest night spawns")
+        self.night_check.setToolTip("Source-defined enemy replacements on map 48; other game conditions are unresolved.")
+        self.night_check.setVisible(KIND_MAP in self._kinds)
+        self.night_check.toggled.connect(self._level_content_changed)
+        layout.addWidget(self.night_check)
+        self.chunk_combo = QComboBox()
+        self.chunk_combo.addItem("All geometry chunks", None)
+        self.chunk_combo.setVisible(KIND_MAP in self._kinds)
+        self.chunk_combo.setToolTip("Inspect one ROM geometry chunk. Game portal visibility is not simulated.")
+        self.chunk_combo.currentIndexChanged.connect(self._texture_frame_changed)
+        layout.addWidget(self.chunk_combo)
         self.objects_list = QListWidget()
         self.objects_list.setMaximumHeight(170)
         self.objects_list.setVisible(KIND_MAP in self._kinds)
@@ -187,7 +207,7 @@ class ModelBrowserTab(QWidget):
         self.frame_spin = QSpinBox()
         self.frame_spin.setRange(0, 255)
         self.frame_spin.setPrefix("Texture frame ")
-        self.frame_spin.setToolTip("Select a ROM texture frame. Each slot wraps independently; game blink/timing scripts are not simulated.")
+        self.frame_spin.setToolTip("Select a ROM texture frame. Each slot wraps independently; Kong blinking is available in Characters; gameplay timing is not inferred for generic actors.")
         self.frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.frame_spin)
         self.reset_button = QPushButton("Reset view")
@@ -229,7 +249,20 @@ class ModelBrowserTab(QWidget):
             QMessageBox.warning(self, "Actor clip export failed", str(exc))
 
     def _load_actor_clips(self):
-        if self._current is None or self._current[0].kind != KIND_ACTOR:
+        if self._current is None:
+            return
+        if self._current[0].kind == KIND_PROP:
+            from .core import prop_animation
+            rig = prop_animation.parse(texture_bank.table_entry(self._rom, 4, self._current[0].index))
+            self.clip_combo.blockSignals(True)
+            self.clip_combo.clear()
+            self.clip_combo.addItem("Static rest pose", None)
+            for track in rig.tracks if rig else ():
+                self.clip_combo.addItem(f"ROM track {track.index}: {len(track.speeds)} keys, {len(track.rows)} matrices", track.index)
+            self.clip_combo.blockSignals(False)
+            self.status_message.emit("Embedded prop tracks; script speed and triggering are preview controls.")
+            return
+        if self._current[0].kind != KIND_ACTOR:
             return
         from .actor_animation import ActorAnimations, animation_assets
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -257,6 +290,12 @@ class ModelBrowserTab(QWidget):
         self.scene_play.setText("Play")
         self.clip_export.setEnabled(False)
         index = self.clip_combo.currentData()
+        if self._current is not None and self._current[0].kind == KIND_PROP:
+            self._scene_tick = 0
+            self.clip_frame.setRange(0, 6000 if index is not None else 0)
+            self.clip_frame.setValue(0)
+            self._show_actor_frame(0)
+            return
         if self._actor_animations is None or self._current is None:
             return
         if index is None:
@@ -274,6 +313,16 @@ class ModelBrowserTab(QWidget):
         self.clip_export.setEnabled(True)
 
     def _show_actor_frame(self, frame):
+        if self._current is not None and self._current[0].kind == KIND_PROP:
+            entry, _model = self._current
+            model = static_model.prop_model(self._rom, entry.index, self._cache, tick=frame,
+                                           track=self.clip_combo.currentData(), speed=self.prop_speed.value())
+            if model is not None:
+                camera = self.viewport._camera
+                self.viewport.set_model_data(model.render, static_model.marker_skeleton(model.render))
+                self.viewport._camera = camera
+                self._current = entry, model
+            return
         if self._actor_animations is None or not self._actor_animations.samples or self.clip_combo.currentData() is None:
             return
         points = self._actor_animations.pose(frame)
@@ -292,12 +341,16 @@ class ModelBrowserTab(QWidget):
             self._scene_timer.stop()
             return
         entry, old = self._current
+        if entry.kind == KIND_PROP and self.clip_combo.currentData() is not None:
+            self.clip_frame.setValue((self.clip_frame.value() + 1) % (self.clip_frame.maximum() + 1))
+            return
         if entry.kind == KIND_ACTOR:
             if self._actor_animations is not None and self._actor_animations.samples and self.clip_combo.currentData() is not None:
                 self.clip_frame.setValue((self.clip_frame.value() + 1) % len(self._actor_animations.samples))
             return
         self._scene_tick += 1
-        model = LOADERS[entry.kind](self._rom, entry.index, self._cache, tick=self._scene_tick)
+        model = LOADERS[entry.kind](self._rom, entry.index, self._cache, tick=self._scene_tick,
+                                          **({"chunks": None if self.chunk_combo.currentData() is None else {self.chunk_combo.currentData()}} if entry.kind == KIND_MAP else {}))
         if model is not None:
             camera = self.viewport._camera
             if model.render.positions == old.render.positions and model.render.batches == old.render.batches:
@@ -306,6 +359,11 @@ class ModelBrowserTab(QWidget):
                 self.viewport.set_model_data(model.render, static_model.marker_skeleton(model.render))
                 self.viewport._camera = camera
             self._current = entry, model
+            if entry.kind == KIND_MAP and self.content_check.isChecked():
+                from .level_content import content_render
+                self._content, _rows, _missing = content_render(self._rom, entry.index, self._cache,
+                    tick=self._scene_tick, night=self.night_check.isChecked(), models=self._content_models)
+                self.viewport.set_attachment_data(self._content)
 
     def _level_content_changed(self, *_args):
         self._content = None
@@ -319,7 +377,7 @@ class ModelBrowserTab(QWidget):
         from . import level_content
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self._content, rows, missing = level_content.content_render(self._rom, entry.index, self._cache)
+            self._content, rows, missing = level_content.content_render(self._rom, entry.index, self._cache, night=self.night_check.isChecked(), models=self._content_models)
         except Exception as exc:
             self.status_message.emit(f"Level contents could not be read: {exc}")
             return
@@ -336,7 +394,10 @@ class ModelBrowserTab(QWidget):
         if self._current is None:
             return
         entry, _old = self._current
-        model = LOADERS[entry.kind](self._rom, entry.index, self._cache, frame=self.frame_spin.value())
+        model = LOADERS[entry.kind](self._rom, entry.index, self._cache, frame=self.frame_spin.value(),
+                                          **({"chunks": None if self.chunk_combo.currentData() is None else {self.chunk_combo.currentData()}} if entry.kind == KIND_MAP else
+                                             {"track": self.clip_combo.currentData(), "tick": self.clip_frame.value(),
+                                              "speed": self.prop_speed.value(), "texture_playback": False} if entry.kind == KIND_PROP else {}))
         if model is not None:
             self._current = entry, model
             camera = self.viewport._camera
@@ -388,14 +449,27 @@ class ModelBrowserTab(QWidget):
         self._scene_timer.stop()
         self.scene_play.setText("Play")
         self._scene_tick = 0
+        self._content_models.clear()
+        self.chunk_combo.blockSignals(True)
+        self.chunk_combo.clear()
+        self.chunk_combo.addItem("All geometry chunks", None)
+        if entry.kind == KIND_MAP:
+            from .core.mesh_decoder import map_ranges
+            data = texture_bank.table_entry(self._rom, 1, entry.index)
+            for chunk in sorted({row[3] for row in map_ranges(data, with_chunk=True)}):
+                self.chunk_combo.addItem(f"Geometry chunk {chunk}", chunk)
+        self.chunk_combo.blockSignals(False)
+        self.night_check.setEnabled(entry.kind == KIND_MAP and entry.index == 48)
         self._actor_animations = None
         self.clip_combo.blockSignals(True)
         self.clip_combo.clear()
         self.clip_combo.addItem("Static rest pose", None)
         self.clip_combo.blockSignals(False)
         self.clip_frame.setRange(0, 0)
-        self.load_clips_button.setEnabled(entry.kind == KIND_ACTOR)
+        self.load_clips_button.setEnabled(entry.kind in (KIND_ACTOR, KIND_PROP))
+        self.load_clips_button.setText("Read embedded prop tracks" if entry.kind == KIND_PROP else "Find compatible actor clips")
         self.clip_export.setEnabled(False)
+        self.prop_speed.setEnabled(entry.kind == KIND_PROP)
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             model = LOADERS[entry.kind](self._rom, entry.index, self._cache)
@@ -453,7 +527,7 @@ class ModelBrowserTab(QWidget):
                 if entry.kind == KIND_MAP and with_content:
                     from dataclasses import replace
                     from . import level_content
-                    content, _rows, _missing = level_content.content_render(self._rom, entry.index, self._cache)
+                    content, _rows, _missing = level_content.content_render(self._rom, entry.index, self._cache, night=self.night_check.isChecked())
                     if content is not None:
                         render = level_content.merge_render((model.render, content))
                         model = replace(model, render=render, triangles=sum(b.face_count for b in render.batches),

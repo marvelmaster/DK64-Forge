@@ -15,8 +15,7 @@ playable characters. This decoder renders any model statically:
 - Textures are decoded with dk64_forge.core.texture_bank from the load state at
   draw time; images on segments other than 0 (dynamic) are drawn untextured unless an
   actor's dynamic slot provides a first frame.
-- `G_MTX` in props (animated props) is ignored: parts are drawn at their rest
-  positions in the model's own space (JFG Forge "rest pose").
+- Prop segment-9 matrices can be supplied by the embedded-track evaluator.
 """
 
 from __future__ import annotations
@@ -24,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 import struct
+import numpy as np
 
 from . import rom_model, texture_bank, rdp
 
@@ -91,7 +91,7 @@ class _State:
 
 
 def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
-           conditional_mask: int | None = None, dynamic_table: int = 25, image_overrides=None, dynamic_groups=None, max_triangles: int = 400_000) -> StaticMesh:
+           conditional_mask: int | None = None, dynamic_table: int = 25, image_overrides=None, dynamic_groups=None, matrices=None, max_triangles: int = 400_000) -> StaticMesh:
     """Decode display-list byte ranges into a static, textured triangle list.
 
     ranges: iterable of (start, end, {segment: vertex_base_offset_in_data}).
@@ -120,6 +120,8 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
             state = _State()
         offset = (0.0, 0.0, 0.0)
         current_bone = 0
+        matrix = None
+        normal_matrix = None
         stack = [(start, end)]
         visited = 0
         while stack:
@@ -150,8 +152,18 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
                         if len(record) < 16 or not 0 <= first + i < SLOTS:
                             break
                         x, y, z, _flag, s, t = struct.unpack(">hhhHhh", record[:12])
-                        state.cache[first + i] = _Vertex(
-                            (x + offset[0], y + offset[1], z + offset[2]), s, t, record[12:16], lit, texgen, current_bone)
+                        position = (x + offset[0], y + offset[1], z + offset[2])
+                        rgba = record[12:16]
+                        if matrix is not None:
+                            position = tuple(float(v) for v in (matrix @ (x, y, z, 1))[:3])
+                            if lit:
+                                normal = np.asarray([_signed(v, 8) for v in rgba[:3]], dtype=float)
+                                normal = normal_matrix @ normal
+                                length = np.linalg.norm(normal)
+                                if length:
+                                    normal *= 127 / length
+                                rgba = bytes(int(round(v)) & 255 for v in normal) + rgba[3:4]
+                        state.cache[first + i] = _Vertex(position, s, t, rgba, lit, texgen, current_bone)
                 elif op in (0x05, 0x06, 0x07):  # G_TRI1 / G_TRI2 / G_QUAD
                     triples = [data[pc - 7:pc - 4]]
                     if op != 0x05:
@@ -189,7 +201,11 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
                     if shift <= 12 and shift + length >= 14:
                         state.bilerp = ((w1 >> 12) & 3) in (2, 3)
                 elif op == 0xDA:  # G_MTX: actor bones select their rest offset
-                    if bone_offsets is not None and w1 >> 24 == 4:
+                    if matrices is not None and w1 >> 24 == 9 and (w1 & 0xFFFFFF) in matrices:
+                        matrix = matrices[w1 & 0xFFFFFF]
+                        normal_matrix = np.linalg.pinv(matrix[:3, :3]).T
+                        current_bone = (w1 & 0xFFFFFF) // 64
+                    elif bone_offsets is not None and w1 >> 24 == 4:
                         bone = (w1 & 0xFFFFFF) // 0x40
                         current_bone = bone
                         offset = bone_offsets.get(bone, (0.0, 0.0, 0.0))

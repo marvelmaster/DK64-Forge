@@ -4,11 +4,11 @@
 
 ## Characters
 
-Choose Normal, Weapon, Instrument or Low poly. All five low-poly meshes use the corresponding regular skeleton. DK's instrument variant attaches the separate bongos actor at scale 1.25 and follows his animated root. Other instrument variants use their dedicated models.
+Choose Normal, Weapon, Instrument or Low poly. All five low-poly meshes use the corresponding regular skeleton. DK's instrument variant attaches the separate bongos actor at scale 1.25 and follows his animated root. The bongos also play their own source-selected script-299 clips on the same preview clock, with diagnostic timing. Animated exports include their separate skin and channels. Other instrument variants use their dedicated models.
 
 The ownership filter includes Table-13 routes and direct source calls. Special moves now include Tiny Pony Tail Twirl (`0x01E5`), Chunky Primate Punch (`0x02A7`), Lanky Orangstand (`0x0160` entry, `0x0161` idle, `0x0162` run, `0x0163` walk), and Diddy Rocketbarrel (`0x0121` reused gun/steering pose, `0x0122` forward, `0x0123` neutral, `0x0124` opposite, `0x0125` transition). Names remain interpretations of source and visual evidence.
 
-**Texture frame** cycles each eye/mouth slot modulo its own frame count. It preserves the camera and pose; it does not simulate blink/mouth scripts. The optional Tiny hair checkbox enables a source-derived procedural diagnostic and applies to model-plus-animation and animation-only exports. Idle/walk/run clips contain constant hair channels; the game supplies the additional motion. The diagnostic substitutes head movement for collision anchors and assumes zero world heading/speed, so it is disabled by default.
+**Texture frame** cycles each eye/mouth slot modulo its own frame count. It preserves the camera and pose. **Automatic eye blinking** follows the single-player Kong blink routine with repeatable preview randomness; Diddy and Tiny blink both eye slots together. Other expression/mouth slots retain the manually selected frame. The optional Tiny hair checkbox enables a source-derived procedural diagnostic and applies to model-plus-animation and animation-only exports. Idle/walk/run clips contain constant hair channels; the game supplies the additional motion. The diagnostic substitutes head movement for collision anchors and assumes zero world heading/speed, so it is disabled by default.
 
 ## Other models
 
@@ -16,13 +16,13 @@ Search names or decimal/hex IDs; filter actors or props. The panel shows names/e
 
 For an actor, **Find compatible actor clips** scans Table 11 against its skeleton, then offers playback and animated GLB export. Complete interior sampling validates a selected clip. Compatibility alone does not establish ownership: clips, timing, runtime adjustments and endpoints remain diagnostic. **Static rest pose** restores the original geometry; **Export static GLB** always exports that geometry rather than the currently animated pose.
 
-For props, **Texture frame** and **Play** select ROM texture-animation frames. Part transforms driven by prop `G_MTX` are still unsupported. Bongos can also be viewed and animated independently here; their actor clip is not automatically matched to DK's instrument clip.
+For props, **Texture frame** and **Play** select ROM texture-animation frames. **Read embedded prop tracks** exposes the ROM matrix tracks; select a track, scrub or play it, and set **Prop script speed**. Part matrices include the stored pre/post transforms and interpolated TRS keys. Track triggering, forward looping and speed are preview choices rather than execution of object scripts. Static GLB exports capture the currently displayed prop pose. Billboard props decode their stored quad/UV/texture records and face the preview camera; GLB stores fixed quad geometry with billboard metadata.
 
 ## Levels
 
-Map playback selects texture frames using each descriptor's ticks-per-frame, with a diagnostic 30-tick/s preview. Dynamic segments are bound per chunk, as in the game's loader; whole-map visibility is used.
+Map playback selects texture frames using each descriptor's ticks-per-frame, with a diagnostic 30-tick/s preview. Dynamic segments are bound per chunk, as in the game's loader; **Geometry chunk** selects all chunks or one chunk for inspection. Game portal visibility is not simulated. Procedural effect 7 surfaces include their source-selected texture, transparency and scrolling tile origin. Other procedural effect IDs are reported in Notes.
 
-**Show placed props and actor spawn markers** reads setup table 9 and character-spawner table 16. Supported model-two meshes are placed with ROM position, scale and rotation records.
+**Show placed props and actor spawns** reads setup table 9 and character-spawner table 16. Supported model-two meshes are placed with ROM position, scale and rotation records.
 
 **Actors** use the game's own definition tables, read from the ROM:
 
@@ -31,11 +31,11 @@ Map playback selects texture frames using each descriptor's ticks-per-frame, wit
 | Setup actors | behaviour → `D_global_asm_8074E8B0` | row scale × 0.15 |
 | Character spawners | enemy value → `D_global_asm_8075EB80` | byte × 5 / 255 × 0.15 (`func_global_asm_80726744`) |
 
-Both are drawn at their 12-bit y rotation, in rest pose with their first texture frames. Entries whose definition has no model (controllers, effect spawners) and props without geometry stay markers. Spawn conditions, scripts and animation are not executed. Fungi Forest's night swaps of three enemies are not applied.
+Both are drawn at their 12-bit y rotation, in rest pose with their first texture frames. Entries whose definition has no model (controllers, effect spawners) and props without geometry stay markers. Spawn conditions, scripts and animation are not executed. **Fungi Forest night spawns** applies the three enemy substitutions from `807278C0` on map 48. Other spawn conditions and actor scripts remain unresolved.
 
 **Map geometry is drawn at 1/3 scale**, as the map loader `func_global_asm_80650ECC` does with `guScale(1/3)`, so maps and placements share world units. Map GLB exports are in these world units.
 
-The list records type, object ID and coordinates. Placement rotation order for props remains an unverified rendering convention. Combined static GLB export includes the displayed content overlay. Placed props currently use their initial texture frame.
+The list records type, object ID and coordinates. Prop placement uses the scale → X → Y → Z → translation order from `8066C610`. Combined static GLB export includes the displayed content overlay. Placed prop texture frames advance with map playback; embedded part tracks remain explicitly selected in Other models.
 
 ## Rendering and data sources
 
@@ -54,6 +54,8 @@ Treating relative chunks as absolute caused the dark, misjoined panels seen befo
 
 The game binds a segment-6 pointer per piece through sub-records (`func_global_asm_80656B98`). The loader code that fills those pointers has not been traced, so the rule is structural evidence. Conditional Kong blocks use hand-state masks; other actors use the generic all-blocks mask.
 
-Static images use table 25. Map and prop animation descriptors explicitly identify table-7 frames; this is traced loader behavior, replacing the previous size heuristic. Prop descriptors are at header `0x6C` with `0x84`-byte rows; map descriptors are at `0x48` with `0x7C`-byte rows. Prop blend flags are read but fractional frame blending is not implemented.
+Static images use table 25. Map and prop animation descriptors explicitly identify table-7 frames; this is traced loader behavior, replacing the previous size heuristic. Prop descriptors are at header `0x6C` with `0x84`-byte rows; map descriptors are at `0x48` with `0x7C`-byte rows. Prop blend flags enable fractional RGBA frame crossfades during playback. These are a desktop approximation of the RDP blend path.
 
 Actor labels come from DK64 Randomizer (MIT/community); prop labels are ROM header strings; map names/layout facts come from the decompilation (CC0). Map layout facts from dk64_lib are used without copying GPL code. See [third-party attribution](../licenses/THIRD_PARTY.md) and [status/open work](status.md).
+
+Further evidence and preview limitations: [Runtime preview](runtime-preview.md).

@@ -99,7 +99,7 @@ class PreviewScene:
     dynamic_materials: dict | None = None
     texture_sources: dict | None = None
 
-    def texture_frame(self, source, frame: int):
+    def texture_frame(self, source, frame: int, *, slot_frames=None):
         from .core import texture_bank, rom_model
         slots = rom_model.parse_dynamic_textures(source.actor)
         textures = []
@@ -115,7 +115,7 @@ class PreviewScene:
             if slot_info and slots.get(slot_info[0]):
                 slot, interleaved = slot_info
                 frames = slots[slot]
-                raw = texture_bank.table_entry(source.normalized, 25, frames[frame % len(frames)])
+                raw = texture_bank.table_entry(source.normalized, 25, frames[(slot_frames or {}).get(slot, frame) % len(frames)])
                 usage = texture_bank.TextureUsage(0, 2, texture.width, texture.height, interleaved, None, "actor")
                 rgba = texture_bank.decode(raw, usage) if raw else None
                 if rgba is not None:
@@ -308,6 +308,9 @@ class PreviewScene:
         samplers = doc["animations"][0]["samplers"]
         paths = {}
         for channel in channels:
+            if channel["target"]["node"] not in node_to_ordinal:
+                # Separate attachment skins have their own preview/player.
+                continue
             ordinal = node_to_ordinal[channel["target"]["node"]]
             path = channel["target"]["path"]
             paths[(ordinal, path)] = _accessor(doc, blob,

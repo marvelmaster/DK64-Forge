@@ -240,9 +240,13 @@ class MainWindow(QMainWindow):
         self.texture_frame_spin = QSpinBox()
         self.texture_frame_spin.setRange(0, 255)
         self.texture_frame_spin.setPrefix("Eyes / mouth frame ")
-        self.texture_frame_spin.setToolTip("ROM texture-slot frame, wrapped per slot. Game blink and mouth scripts are not simulated.")
+        self.texture_frame_spin.setToolTip("ROM texture-slot frame, wrapped per slot. Automatic blinking overrides eye slots; mouth expressions retain this selection.")
         self.texture_frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.texture_frame_spin)
+        self.auto_blink_check = QCheckBox("Automatic eye blinking")
+        self.auto_blink_check.setToolTip("Single-player Kong blink script with repeatable preview RNG. Mouth expressions retain the selected frame.")
+        self.auto_blink_check.toggled.connect(self._texture_frame_changed)
+        layout.addWidget(self.auto_blink_check)
         self.hair_check = QCheckBox("Tiny procedural hair (diagnostic)")
         self.hair_check.setToolTip("Game pendulum equations with clip-space head-Y as an anchor proxy; Actor speed/heading zero. Requires live capture for exact game motion.")
         self.hair_check.setVisible(self.source.character.key == "tiny")
@@ -500,18 +504,28 @@ class MainWindow(QMainWindow):
         from dataclasses import replace
         from . import static_model
         self._attachment_bind_positions = None
+        self._bongo_animation = None
         if self.source.character.key == "dk" and self.source.character.variant == "instrument":
             model = static_model.actor_model(self.source.normalized, 0xA5, static_model.TextureCache(self.source.normalized))
             if model is not None:
                 points = tuple(tuple(v * 1.25 for v in p) for p in model.render.positions)
                 data = replace(model.render, positions=points)
                 self._attachment_bind_positions = points
+                from .bongos import animation
+                self._bongo_animation = animation(self.source.normalized, model)
                 self.viewport.set_attachment_data(data)
                 return
         self.viewport.set_attachment_data(None)
 
     def _texture_frame_changed(self, *_args) -> None:
-        self.viewport.set_textures(self.preview.texture_frame(self.source, self.texture_frame_spin.value()))
+        from .core.actor_textures import KongBlink
+        from .core.rom_model import parse_dynamic_textures
+        slot_frames = None
+        if self.auto_blink_check.isChecked():
+            if not hasattr(self, "_blink") or self._blink.character != self.source.character.key:
+                self._blink = KongBlink(self.source.character.key)
+            slot_frames = self._blink.frames(getattr(self, "_blink_tick", 0), parse_dynamic_textures(self.source.actor))
+        self.viewport.set_textures(self.preview.texture_frame(self.source, self.texture_frame_spin.value(), slot_frames=slot_frames))
 
     def _model_tab_changed(self, index: int) -> None:
         if index == 0:
@@ -835,9 +849,17 @@ class MainWindow(QMainWindow):
             import numpy as np
             sample = self.preview.local_samples[self._current_frame - first]
             root = self.preview._globals(sample, self.preview.parent_ordinals)[0]
-            points = np.asarray(self._attachment_bind_positions)
+            if self._bongo_animation is not None:
+                seconds = (self._current_frame - first) / self._samples_per_second()
+                bongo_frame = min(int(seconds * 30), len(self._bongo_animation.samples) - 1)
+                points = np.asarray(self._bongo_animation.pose(bongo_frame)) * 1.25
+            else:
+                points = np.asarray(self._attachment_bind_positions)
             posed = points @ root[:3, :3].T + root[:3, 3]
             self.viewport.set_attachment_positions(tuple(tuple(float(v) for v in p) for p in posed))
+        if self.auto_blink_check.isChecked():
+            self._blink_tick = int((self._time_seconds if self._playing else (self._current_frame - first) / self._samples_per_second()) * 30)
+            self._texture_frame_changed()
         self._last_skeleton = skeleton
         with QSignalBlocker(self.time_slider):
             self.time_slider.setValue(self._current_frame)

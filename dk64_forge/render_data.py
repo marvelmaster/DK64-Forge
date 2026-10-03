@@ -35,6 +35,7 @@ class PreparedBatch:
     z_mode: int = 0
     material: MaterialState = MaterialState()
     texture1_index: int | None = None
+    billboard_center: tuple[float, float, float] | None = None
 
     @property
     def face_count(self) -> int:

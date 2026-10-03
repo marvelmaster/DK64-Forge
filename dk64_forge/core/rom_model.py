@@ -72,7 +72,7 @@ def decode_n64_normal(raw: bytes) -> tuple[float, float, float]:
 
 
 def parse_dynamic_textures(actor: Actor) -> dict[int, tuple[int, ...]]:
-    """Read the actor's DK64 dynamic-texture header (Randomizer's documented layout)."""
+    """Read actor slots: count, segment, enabled flag, then count image IDs (80687D50)."""
     at = actor.dynamic_texture_offset
     need(at + 2 <= len(actor.data), "dynamic-texture header truncated")
     count = int.from_bytes(actor.data[at:at + 2], "big")
@@ -81,13 +81,14 @@ def parse_dynamic_textures(actor: Actor) -> dict[int, tuple[int, ...]]:
     result = {}
     for _ in range(count):
         need(at + 6 <= len(actor.data), "dynamic-texture record truncated")
-        frame_count, slot, layers = struct.unpack_from(">HHH", actor.data, at)
+        frame_count, slot, enabled = struct.unpack_from(">HHH", actor.data, at)
         at += 6
-        need(frame_count <= 256 and layers <= 16, "implausible dynamic-texture record")
-        frame_total = frame_count * layers
+        need(frame_count <= 256 and enabled <= 1, "implausible dynamic-texture record")
+        frame_total = frame_count
         need(at + frame_total * 2 <= len(actor.data), "dynamic-texture frames truncated")
         values = struct.unpack_from(f">{frame_total}H", actor.data, at) if frame_total else ()
-        result[slot] = tuple(values[:frame_count])
+        if enabled:
+            result[slot] = tuple(values[:frame_count])
         at += frame_total * 2
     return result
 

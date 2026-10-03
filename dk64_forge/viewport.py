@@ -128,11 +128,20 @@ layout(location = 1) in vec2 in_uv;
 layout(location = 2) in vec4 in_color;
 layout(location = 3) in vec2 in_uv1;
 uniform mat4 mvp;
+uniform bool is_billboard;
+uniform vec3 billboard_center;
+uniform vec2 billboard_right;
 out vec2 uv;
 out vec2 uv1;
 out vec4 shade;
 void main() {
-    gl_Position = mvp * vec4(in_position, 1.0);
+    vec3 position = in_position;
+    if (is_billboard) {
+        vec3 relative = position - billboard_center;
+        position.xz = billboard_center.xz + billboard_right * relative.x
+                    + vec2(-billboard_right.y, billboard_right.x) * relative.z;
+    }
+    gl_Position = mvp * vec4(position, 1.0);
     uv = in_uv;
     uv1 = in_uv1;
     shade = in_color;
@@ -804,6 +813,9 @@ class ModelViewport(QOpenGLWidget):
         program = self._program
         glUseProgram(program)
         glUniformMatrix4fv(self._uniform(program, "mvp"), 1, GL_TRUE, mvp)
+        right = np.asarray(self._camera.view_matrix())[0, (0, 2)]
+        right = right / (np.linalg.norm(right) or 1.)
+        glUniform2f(self._uniform(program, "billboard_right"), *right)
         glUniform1i(self._uniform(program, "color_texture"), 0)
         glUniform1i(self._uniform(program, "second_texture"), 1)
         self._last_material = None
@@ -841,9 +853,11 @@ class ModelViewport(QOpenGLWidget):
         material = batch.material
         # Only re-send uniforms when the batch's material state differs from the last one.
         key = (batch.alpha_mode, texture_handle is not None, batch.fallback_rgba, material,
-               second_handle is not None)
+               second_handle is not None, batch.billboard_center)
         if key != self._last_material:
             self._last_material = key
+            glUniform1i(u(program, "is_billboard"), int(batch.billboard_center is not None))
+            glUniform3f(u(program, "billboard_center"), *(batch.billboard_center or (0., 0., 0.)))
             glUniform1i(u(program, "alpha_mode"), {"OPAQUE": 0, "MASK": 1, "BLEND": 2}[batch.alpha_mode])
             glUniform1i(u(program, "use_texture"), int(texture_handle is not None))
             glUniform4f(u(program, "fallback_color"), *batch.fallback_rgba)
