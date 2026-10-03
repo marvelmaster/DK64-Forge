@@ -29,10 +29,10 @@ class ExportResult:
 
 
 def _generic_animation(source: RomSource, descriptor: AnimationDescriptor,
-                       temp: Path) -> tuple[Path, dict, int]:
+                       temp: Path, *, procedural_hair=False) -> tuple[Path, dict, int]:
     """Serialize through the established pose/glTF path, then set diagnostic times."""
     preview = pipeline.entry4_rootmotion_preview
-    samples, bone_records = sample_compatible_animation(source, descriptor)
+    samples, bone_records = sample_compatible_animation(source, descriptor, procedural_hair=procedural_hair)
     transforms, conversion = preview.convert_samples_to_joint_trs(
         samples, bone_records, allow_constant=True,
         relative_global_tolerance=4 * 2**-23)
@@ -62,6 +62,7 @@ def _generic_animation(source: RomSource, descriptor: AnimationDescriptor,
         "semantic_evidence": descriptor.semantic_evidence,
         "dk_table13_slots": list(descriptor.dk_slots),
         "dk_table13_play_slots": list(descriptor.dk_play_slots),
+        "source_animation_scripts": list(descriptor.source_scripts),
         "animation_asset_decompressed_sha256": descriptor.decompressed_sha256,
         "animation_asset_decompressed_size": descriptor.decompressed_size,
         "timing": "diagnostic/artificial",
@@ -76,7 +77,8 @@ def _generic_animation(source: RomSource, descriptor: AnimationDescriptor,
         "prefix_widths": list(descriptor.prefix_widths),
         "animation_prefix_translation_applied": True,
         "actor_world_transform_applied": False,
-        "adjustments_applied": False,
+        "adjustments_applied": procedural_hair,
+        "procedural_hair": ("Tiny pendulum diagnostic: head-Y proxy for collision anchors 13/14; zero Actor heading/speed; floating-point approximation" if procedural_hair else "omitted"),
         "endpoint_loop_policy": "unknown",
         "runtime_faithful": False,
     }
@@ -136,8 +138,8 @@ def _export_animation_only(source: RomSource, destination: Path, animation_id: i
     return ExportResult(destination, ExportKind.ANIMATION_ONLY, validation)
 
 
-def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
-                *, animation_id: int = 4) -> ExportResult:
+def _export_gltf(source: RomSource, destination: Path, kind: ExportKind,
+                *, animation_id: int = 4, procedural_hair: bool = False) -> ExportResult:
     """Create a user-selected local export, without changing research artifacts."""
     destination = Path(destination)
     if destination.suffix.lower() != ".gltf":
@@ -167,7 +169,7 @@ def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
         descriptor = descriptor_for(source, animation_id)
         with TemporaryDirectory(prefix="dk64_forge_browser_") as temp_dir:
             temp = Path(temp_dir)
-            animated, trace, sample_count = _generic_animation(source, descriptor, temp)
+            animated, trace, sample_count = _generic_animation(source, descriptor, temp, procedural_hair=procedural_hair)
             textured = temp / "dk_static_textured.gltf"
             pipeline.static_dk.export_textured_gltf(
                 source.mesh, source.actor, source.normalized, textured)
@@ -262,3 +264,15 @@ def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
             validation["samples"], validation["channels"]) != (25, spec.triangles, 98, 75):
         raise ValueError("Animated export differs from the verified DK reference")
     return ExportResult(destination, kind, validation)
+
+
+def export_gltf(source: RomSource, destination: Path, kind: ExportKind,
+                *, animation_id: int = 4, procedural_hair: bool = False) -> ExportResult:
+    if procedural_hair and source.character.key != "tiny":
+        raise ValueError("Procedural hair is supported only for Tiny")
+    result = _export_gltf(source, destination, kind, animation_id=animation_id, procedural_hair=procedural_hair)
+    if source.character.key == "dk" and source.character.variant == "instrument" and kind is not ExportKind.ANIMATION_ONLY:
+        from .attachments import add_bongos
+        triangles = add_bongos(source, destination)
+        result.validation["attachment_triangles"] = triangles
+    return result

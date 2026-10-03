@@ -44,7 +44,7 @@ Nothing else needs to be downloaded or set up.
   code and are not official names.
 - The **variant** selector under the character shows the Kong with its **weapon drawn** (Coconut
   Shooter, Peanut Popguns, Grape Shooter, Feather Bow, Pineapple Launcher) or its **instrument model**
-  (Diddy, Lanky, Tiny and Chunky). Weapons are part of each Kong model and follow the hand bones in every
+  (all five Kongs, including DK with attached bongos), or the **low-poly model**. Weapons are part of each Kong model and follow the hand bones in every
   animation; the hand-state bits are the ones the game sets when the weapon is drawn.
 - The viewport supports orbit, pan and zoom, mesh/skeleton views and animation playback.
 - **Timing**: *Game rate* plays 30 adjusted units per second (observed for DK's Entry 4, a
@@ -60,32 +60,30 @@ Nothing else needs to be downloaded or set up.
 | Kong | Bones | Faces | Animations in the browser | Played by the Kong | Labelled |
 |---|---|---|---|---|---|
 | Donkey Kong | 25 | 704 | 183 | 94 | 76 |
-| Diddy Kong | 37 | 678 | 175 | 103 | 83 |
-| Tiny Kong | 39 | 744 | 165 | 95 | 68 |
-| Chunky Kong | 23 | 699 | 184 | 98 | 76 |
-| Lanky Kong | 21 | 704 | 171 | 92 | 66 |
+| Diddy Kong | 37 | 678 | 175 | 107 | 87 |
+| Tiny Kong | 39 | 744 | 165 | 96 | 69 |
+| Chunky Kong | 23 | 699 | 184 | 98 | 77 |
+| Lanky Kong | 21 | 704 | 171 | 99 | 73 |
 
 ### Models and Levels tabs
 
-The **Models** tab lists every actor model (table 5, e.g. Rambi, enemies, NPCs) and every prop
-(table 4, named by the ROM itself, e.g. `torches`); the **Levels** tab lists the map geometry
-(table 1, e.g. Japes). Each entry is shown as a static, textured mesh with its vertex colours and
-can be exported as a single binary glTF (**Export static GLB...**). Animated props and actors are
-shown in their rest pose; lighting and the colour combiner are approximated.
+The **Models** tab groups **Characters** and **Other models**. Other models browses actors and
+props, supports compatible actor-clip playback/animated GLB export, and prop texture frames.
+**Levels** adds map texture playback, placed setup props and actor/spawner markers.
+The viewport evaluates ROM combiner state with preview lighting; full runtime fidelity remains open.
 Details: [docs/models.md](docs/models.md).
 
 ### Audio tab
 
 The **Audio** tab plays the 174 songs and 1,126 sound effects and exports WAV or MP3. Songs are rendered
 from the game's compressed MIDI and instrument bank with the game's own reverb settings; sound effects
-use the game's samples, decoded exactly. Details: [docs/audio.md](docs/audio.md).
+use the game's decoded samples (four stored ADPCM loop states remain unresolved). Details: [docs/audio.md](docs/audio.md).
 
 ### Textures tab
 
-The **Textures** tab is a bank of the ROM's 6,011 geometry textures (table 25), with search, filters,
-a pixel preview and PNG export. The ROM stores neither formats nor names: Forge reads them from the
-display lists of every actor, prop and map that uses a texture (about 3,800 decode this way), and
-derives each name from its first user. Details: [docs/textures.md](docs/textures.md).
+The **Textures** tab browses banks 25 (geometry), 7 (uncompressed) and 14 (HUD), with search,
+usage-derived formats, manual decoding, pixel preview and bank-qualified PNG export.
+Details: [docs/textures.md](docs/textures.md).
 
 ## Project layout
 
@@ -97,16 +95,20 @@ derives each name from its first user. Details: [docs/textures.md](docs/textures
   See `dk64_forge/core/__init__.py` for the module list.
 - `start_forge.bat`, `requirements.txt` – launcher and dependencies.
 
+## Project status and open work
+
+The JFG feature-parity milestone is complete. See [status and open work](docs/status.md) for the supported features, remaining tasks and evidence limits. The content/material expansion is implemented, with runtime-fidelity gaps recorded explicitly.
+
 ## Limitations
 
-Experimental research tool, not a runtime-faithful reproduction. Animation is supported for the playable
-models, their weapon state and instrument models (no low-poly variants, no DK bongos); other actors, props and maps are static. Lighting is not
-modelled (shirts and shoes render flat white), animation timing is a browser convenience
-(30 units/s) for all clips except the reference clip of Donkey Kong, and adjustment rows and
-world placement are omitted. The exported textures use a fixed front camera for the
-view-dependent highlight faces. In the Models and Levels tabs lighting is approximated and map
-objects are not placed. Songs are rendered by Forge (no chorus or mid-note pitch bends), and sound
-effects play at their sample's own pitch and volume.
+Experimental research tool. Preview lighting is a fixed key light; full N64 TMEM, blender/fog and
+rounding are not reproduced. Generic actor clips establish structural compatibility rather than
+ownership; prop skeletal animation remains open. Eye/mouth frames are selectable but gameplay
+scripts are not simulated. Tiny has an optional source-derived hair diagnostic with approximate
+world/anchor inputs. Most animation timing uses a diagnostic 30 units/s rate, and ordinary runtime
+adjustments/world placement remain omitted. View-dependent highlight exports use a fixed camera.
+Level actors and unsupported props appear as markers, with no spawn simulation or chunk visibility.
+Songs omit chorus and mid-note pitch bends; SFX use their samples' own pitch and volume.
 
 ## Legal and license
 

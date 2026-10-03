@@ -5,6 +5,7 @@ licensed JFG Forge renderer contract. No JFG asset semantics are used.
 """
 
 from dataclasses import dataclass, replace
+from .core.rdp import MaterialState
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class PreparedTexture:
     rgba: bytes
     wrap_s: str
     wrap_t: str
+    mip_levels: tuple[tuple[int, int, bytes], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,8 @@ class PreparedBatch:
     depth_write: bool = True
     depth_compare: bool = True
     z_mode: int = 0
+    material: MaterialState = MaterialState()
+    texture1_index: int | None = None
 
     @property
     def face_count(self) -> int:
@@ -46,6 +50,7 @@ class PreparedRenderData:
     bounds_maximum: tuple[float, float, float]
     # Optional per-corner RGBA (0..1), e.g. DK64 map/prop vertex colours (shade). None = white.
     colors: tuple[tuple[float, float, float, float], ...] | None = None
+    uvs1: tuple[tuple[float, float], ...] | None = None
 
 
 def depth_comparison_for_batch(batch: PreparedBatch) -> str:

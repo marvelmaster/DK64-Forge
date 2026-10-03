@@ -6,6 +6,7 @@ DK64 geometry, texture, skeleton, and pose data enter through adapters only.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import ctypes
 
 import numpy as np
@@ -35,6 +36,7 @@ from OpenGL.GL import (
     GL_RGBA,
     GL_SRC_ALPHA,
     GL_TEXTURE0,
+    GL_TEXTURE1,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
     GL_TEXTURE_MIN_FILTER,
@@ -84,6 +86,12 @@ from OpenGL.GL import (
     glTexParameteri,
     glUniform1i,
     glUniform4f,
+    glUniform4i,
+    glUniform3f,
+    glUniform2f,
+    glGenerateMipmap,
+    GL_TEXTURE_MAX_LEVEL,
+    glUniform1f,
     glUniformMatrix4fv,
     glUseProgram,
     glVertexAttribPointer,
@@ -106,27 +114,95 @@ _VERTEX_SHADER = """#version 330 core
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec2 in_uv;
 layout(location = 2) in vec4 in_color;
+layout(location = 3) in vec2 in_uv1;
 uniform mat4 mvp;
 out vec2 uv;
+out vec2 uv1;
 out vec4 shade;
 void main() {
     gl_Position = mvp * vec4(in_position, 1.0);
     uv = in_uv;
+    uv1 = in_uv1;
     shade = in_color;
 }
 """
 
 _FRAGMENT_SHADER = """#version 330 core
 in vec2 uv;
+in vec2 uv1;
 in vec4 shade;
 uniform sampler2D color_texture;
+uniform sampler2D second_texture;
+uniform bool use_second_texture;
 uniform bool use_texture;
 uniform int alpha_mode;
 uniform vec4 fallback_color;
+uniform bool use_combiner;
+uniform int cycle_type;
+uniform ivec4 rgb0, rgb1, alpha0, alpha1;
+uniform vec4 primitive_color, environment_color;
+uniform float prim_lod;
+uniform vec3 key_center, key_scale;
+uniform vec2 convert_k;
+uniform bool texture_lod;
+float lod_fraction;
 out vec4 fragment_color;
+vec4 combined, tex0, tex1;
+vec3 rgb(int n, int slot) {
+    if (n == 0) return combined.rgb;
+    if (n == 1) return tex0.rgb;
+    if (n == 2) return tex1.rgb;
+    if (n == 3) return primitive_color.rgb;
+    if (n == 4) return shade.rgb;
+    if (n == 5) return environment_color.rgb;
+    if ((slot == 0 || slot == 3) && n == 6) return vec3(1.0);
+    if (slot == 1 && n == 6) return key_center;
+    if (slot == 1 && n == 7) return vec3(convert_k.x);
+    if (slot == 2 && n == 6) return key_scale;
+    if (slot == 2 && n == 13) return vec3(lod_fraction);
+    if (slot == 2 && n == 15) return vec3(convert_k.y);
+    if (slot == 0 && n == 7) return vec3(fract(sin(dot(gl_FragCoord.xy, vec2(12.9898,78.233))) * 43758.5453));
+    if (slot == 2) {
+        if (n == 7) return vec3(combined.a);
+        if (n == 8) return vec3(tex0.a);
+        if (n == 9) return vec3(tex1.a);
+        if (n == 10) return vec3(primitive_color.a);
+        if (n == 11) return vec3(shade.a);
+        if (n == 12) return vec3(environment_color.a);
+        if (n == 14) return vec3(prim_lod);
+    }
+    return vec3(0.0);
+}
+float alpha(int n, bool multiplier) {
+    if (n == 0) return multiplier ? lod_fraction : combined.a;
+    if (n == 1) return tex0.a;
+    if (n == 2) return tex1.a;
+    if (n == 3) return primitive_color.a;
+    if (n == 4) return shade.a;
+    if (n == 5) return environment_color.a;
+    if (n == 6) return multiplier ? prim_lod : 1.0;
+    return 0.0;
+}
+vec4 evaluate(ivec4 r, ivec4 a) {
+    return vec4((rgb(r.x, 0) - rgb(r.y, 1)) * rgb(r.z, 2) + rgb(r.w, 3),
+                (alpha(a.x, false) - alpha(a.y, false)) * alpha(a.z, true) + alpha(a.w, false));
+}
 void main() {
-    // TEXEL0 * SHADE: the common DK64 combiner, approximated for every batch.
-    fragment_color = (use_texture ? texture(color_texture, uv) : fallback_color) * shade;
+    tex0 = use_texture ? texture(color_texture, uv) : fallback_color;
+    vec2 size = vec2(textureSize(color_texture, 0));
+    float rho = max(length(dFdx(uv) * size), length(dFdy(uv) * size));
+    float lod = texture_lod ? max(0.0, log2(max(rho, 0.00001))) : 0.0;
+    lod_fraction = fract(lod);
+    if (texture_lod && use_texture) tex0 = textureLod(color_texture, uv, floor(lod));
+    tex1 = use_second_texture ? texture(second_texture, uv1) : (use_texture ? textureLod(color_texture, uv, floor(lod) + 1.0) : fallback_color);
+    combined = vec4(0.0);
+    if (!use_combiner) fragment_color = tex0 * shade;
+    else if (cycle_type == 2) fragment_color = tex0;
+    else if (cycle_type == 3) fragment_color = primitive_color;
+    else {
+        if (cycle_type == 1) combined = evaluate(rgb0, alpha0);
+        fragment_color = clamp(evaluate(rgb1, alpha1), 0.0, 1.0);
+    }
     if (alpha_mode == 1 && fragment_color.a < 0.5) discard;
     if (alpha_mode != 2) fragment_color.a = 1.0;
 }
@@ -190,7 +266,7 @@ def texture_upload_rows(texture) -> np.ndarray:
         np.frombuffer(texture.rgba, dtype=np.uint8).reshape(texture.height, texture.width, 4))
 
 
-VERTEX_COLUMNS = 9  # position xyz, uv, rgba shade
+VERTEX_COLUMNS = 11  # position xyz, UV0, RGBA shade, UV1
 
 
 def _vertex_array(data: PreparedRenderData) -> np.ndarray:
@@ -200,6 +276,7 @@ def _vertex_array(data: PreparedRenderData) -> np.ndarray:
     rows[:, 3:5] = np.asarray(data.uvs, dtype=np.float32).reshape(-1, 2)
     if data.colors is not None:
         rows[:, 5:9] = np.asarray(data.colors, dtype=np.float32).reshape(-1, 4)
+    rows[:, 9:11] = np.asarray(data.uvs1 or data.uvs, dtype=np.float32).reshape(-1, 2)
     return rows
 
 
@@ -211,6 +288,8 @@ def _bind_vertex_attributes(itemsize: int) -> None:
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * itemsize))
     glEnableVertexAttribArray(2)
     glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(5 * itemsize))
+    glEnableVertexAttribArray(3)
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(9 * itemsize))
 
 
 def _wrap_constant(name: str) -> int:
@@ -402,6 +481,31 @@ class ModelViewport(QOpenGLWidget):
         self._camera = OrbitCamera.from_points(self._data.positions)
         self.update()
 
+    def set_vertex_colors(self, colors) -> None:
+        if colors is None:
+            return
+        if len(colors) != len(self._vertex_data):
+            raise ValueError("Shade count differs from mesh")
+        self._vertex_data[:, 5:9] = np.asarray(colors, dtype=np.float32)
+        self._data = replace(self._data, colors=tuple(colors))
+        if self._program and not self._failed:
+            self.makeCurrent()
+            glBindBuffer(GL_ARRAY_BUFFER, self._vbo)
+            glBufferSubData(GL_ARRAY_BUFFER, 0, self._vertex_data.nbytes, self._vertex_data)
+            glBindBuffer(GL_ARRAY_BUFFER, 0)
+            self.doneCurrent()
+        self.update()
+
+    def set_textures(self, textures) -> None:
+        self._data = replace(self._data, textures=tuple(textures))
+        if self._program and not self._failed:
+            self.makeCurrent()
+            if self._textures:
+                glDeleteTextures(list(self._textures.values()))
+            self._upload_textures()
+            self.doneCurrent()
+        self.update()
+
     def set_attachment_data(self, data: PreparedRenderData | None) -> None:
         """Replace an optional generic scene mesh, unused by DK64's first UI."""
         if self._program and not self._failed:
@@ -483,6 +587,10 @@ class ModelViewport(QOpenGLWidget):
                 GL_UNSIGNED_BYTE,
                 pixels,
             )
+            glGenerateMipmap(GL_TEXTURE_2D)
+            for level, (width, height, rgba) in enumerate(texture.mip_levels, 1):
+                pixels = np.asarray(bytearray(rgba), dtype=np.uint8).reshape(height, width, 4).copy()
+                glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
             handles[texture.texture_index] = handle
         glBindTexture(GL_TEXTURE_2D, 0)
         return handles
@@ -545,6 +653,25 @@ class ModelViewport(QOpenGLWidget):
         texture_handle = None if batch.texture_index is None else textures.get(batch.texture_index)
         glUniform1i(glGetUniformLocation(self._program, "use_texture"), int(texture_handle is not None))
         glUniform4f(glGetUniformLocation(self._program, "fallback_color"), *batch.fallback_rgba)
+        material = batch.material
+        glUniform1i(glGetUniformLocation(self._program, "use_combiner"), int(material.mux is not None))
+        glUniform1i(glGetUniformLocation(self._program, "cycle_type"), material.cycle)
+        glUniform4f(glGetUniformLocation(self._program, "primitive_color"), *material.primitive)
+        glUniform4f(glGetUniformLocation(self._program, "environment_color"), *material.environment)
+        glUniform1f(glGetUniformLocation(self._program, "prim_lod"), material.prim_lod)
+        glUniform3f(glGetUniformLocation(self._program, "key_center"), *material.key_center)
+        glUniform3f(glGetUniformLocation(self._program, "key_scale"), *material.key_scale)
+        glUniform2f(glGetUniformLocation(self._program, "convert_k"), *material.convert_k)
+        glUniform1i(glGetUniformLocation(self._program, "texture_lod"), int(material.texture_lod))
+        if material.mux is not None:
+            for name, values in zip(("rgb0", "alpha0", "rgb1", "alpha1"),
+                                    (material.mux[0:4], material.mux[4:8], material.mux[8:12], material.mux[12:16])):
+                glUniform4i(glGetUniformLocation(self._program, name), *values)
+        second_handle = textures.get(batch.texture1_index) if batch.texture1_index is not None else None
+        glUniform1i(glGetUniformLocation(self._program, "second_texture"), 1)
+        glUniform1i(glGetUniformLocation(self._program, "use_second_texture"), int(second_handle is not None))
+        glActiveTexture(GL_TEXTURE1)
+        glBindTexture(GL_TEXTURE_2D, second_handle or 0)
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_2D, 0 if texture_handle is None else texture_handle)
         glDrawArrays(GL_TRIANGLES, batch.first_vertex, batch.vertex_count)

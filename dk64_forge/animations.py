@@ -51,10 +51,11 @@ class AnimationDescriptor:
     dk_slots: tuple[int, ...] = ()       # Table-13 slots in this character's column
     dk_play_slots: tuple[int, ...] = ()
     character: str = "dk"
+    source_scripts: tuple[int, ...] = ()
 
     @property
     def owned(self) -> bool:
-        """Played by this character's own Table-13 animation code (or runtime-locked)."""
+        """Played by character-specific Table-13/source calls (or runtime-locked)."""
         return "_OWNERSHIP_VERIFIED" in self.ownership
 
     @property
@@ -77,7 +78,7 @@ def _anim_code(source):
 
 def _dk_routes(source, column: int = 0) -> dict[int, list[dict]]:
     """Table-11 IDs that a character's Table-13 animation code plays, with their slots."""
-    return pipeline.dk_anim_code_table.dk_clip_routes(_anim_code(source), column)
+    return pipeline.dk_anim_code_table.character_clip_routes(_anim_code(source), column)
 
 
 def _route_suffix(slots, play_slots) -> str:
@@ -111,12 +112,16 @@ def descriptor_from_row(row: dict, routes: dict[int, list[dict]] | None = None,
     reference = is_dk and animation_id == 4  # Entry 4: bit-exact DK reference clip
     clip_routes = (routes or {}).get(animation_id, [])
     static_owned = bool(clip_routes)
+    table_owned = any(not r["route"].startswith("source_") for r in clip_routes)
+    source_scripts = tuple(sorted({r["script"] for r in clip_routes if r["route"] == "source_script"}))
     slots = tuple(sorted({r["slot"] for r in clip_routes if r["route"] == "slot_table"}))
     play_slots = tuple(sorted({r["play_slot"] for r in clip_routes if r["route"] == "playAnimation"}))
     label_table = pipeline.dk_animation_names.CURATED_LABELS if labels is None else labels
     curated = (label_table.get(animation_id)
                if (static_owned or runtime_owned or routes is None) else None)
     suffix = _route_suffix(slots, play_slots)
+    if not suffix and source_scripts:
+        suffix = "script " + "/".join(f"{s:03X}" for s in source_scripts)
     short = "DK" if is_dk else character.name.split()[0]
     owner = character.key.upper()
     if curated:
@@ -128,7 +133,8 @@ def descriptor_from_row(row: dict, routes: dict[int, list[dict]] | None = None,
     else:
         label = f"{animation_id:04X} — not in {short} animation code"
     ownership = (f"{owner}_OWNERSHIP_VERIFIED_STATIC_TABLE13+RUNTIME" if static_owned and runtime_owned
-                 else f"{owner}_OWNERSHIP_VERIFIED_STATIC_TABLE13" if static_owned
+                 else f"{owner}_OWNERSHIP_VERIFIED_STATIC_TABLE13" if table_owned
+                 else f"{owner}_OWNERSHIP_VERIFIED_STATIC_SOURCE" if static_owned
                  else "DK_OWNERSHIP_VERIFIED_RUNTIME" if runtime_owned else "OWNERSHIP_UNKNOWN")
     return AnimationDescriptor(
         animation_id, label, ownership,
@@ -141,7 +147,7 @@ def descriptor_from_row(row: dict, routes: dict[int, list[dict]] | None = None,
          else GENERIC_TIMING_BASIS),
         ("verified direct Entry-4 scalar 0x38000001" if reference
          else GENERIC_SCALAR_BASIS),
-        slots, play_slots, character.key,
+        slots, play_slots, character.key, source_scripts,
     )
 
 
@@ -166,7 +172,7 @@ def load_descriptors(source, census_path: Path | None = None) -> tuple[Animation
     # Diddy has one (0x0588). They stay in the census but not in the browser.
     rows = [row for row in rows if int(row["layout"]["endpoint_like_marker"]) >= 3]
     table = _anim_code(source)
-    routes = pipeline.dk_anim_code_table.dk_clip_routes(table, character.table13_column)
+    routes = pipeline.dk_anim_code_table.character_clip_routes(table, character.table13_column)
     labels = pipeline.dk_animation_names.labels_for(table, character.table13_column)
     descriptors = tuple(descriptor_from_row(row, routes, character, labels)
                         for row in sorted(rows, key=lambda r: int(r["id"])))
@@ -196,7 +202,7 @@ def extract_compatible_asset(source, descriptor: AnimationDescriptor) -> bytes:
     return asset
 
 
-def sample_compatible_animation(source, descriptor: AnimationDescriptor):
+def sample_compatible_animation(source, descriptor: AnimationDescriptor, *, procedural_hair=False):
     """Reuse the established reader/local builder and origin-centred root math."""
     asset = extract_compatible_asset(source, descriptor)
     bones = len(source.skeleton.bones)
@@ -212,6 +218,10 @@ def sample_compatible_animation(source, descriptor: AnimationDescriptor):
     records = source.actor.data[source.actor.bone_start:source.actor.bone_start + bones * 16]
     quarter = pipeline.trace_one_bone.quarter_table_words_from_rom(source.normalized)
     samples = []
+    hair = None
+    if procedural_hair and source.character.key == "tiny":
+        from .core.tiny_hair import TinyHair
+        hair = TinyHair(source.normalized, descriptor.table11_id)
     for cursor0 in range(descriptor.safe_first, descriptor.safe_last + 1):
         cursor1 = cursor0 + 1
         try:
@@ -223,7 +233,18 @@ def sample_compatible_animation(source, descriptor: AnimationDescriptor):
             t1 = struct.unpack(f">{channels}H", reader.t1)
             locals_ = pipeline.reconstruct_direct_pose.reconstruct_direct_local_pose_unadjusted(
                 records, t5, t1, quarter, expected_bones=bones)
-            if len(locals_) != bones or any(b.adjustment_count or b.pre_t5 != b.post_t5
+            if hair is not None:
+                # A reproducible offline diagnostic: use the head's clip-space Y
+                # for both anchors; world heading/speed are zero. Game collision
+                # anchors 13/14 and Actor movement require a runtime capture.
+                composed_anchor = pipeline.compose_direct_pose.compose_direct_hierarchy(
+                    locals_, pipeline.compose_direct_pose.identity_root_words())
+                head_words = composed_anchor[2].matrix_words
+                head_y = struct.unpack(">f", struct.pack(">I", head_words[10]))[0]
+                adjustments = hair.step((head_y, head_y))
+                locals_ = pipeline.reconstruct_direct_pose.reconstruct_direct_local_pose(
+                    records, t5, t1, adjustments, quarter, expected_bones=bones)
+            if len(locals_) != bones or not hair and any(b.adjustment_count or b.pre_t5 != b.post_t5
                                             for b in locals_):
                 raise ValueError(f"local pose does not have {bones} unadjusted bones")
             root = preview.origin_centered_root_words(locals_[0].matrix_words,

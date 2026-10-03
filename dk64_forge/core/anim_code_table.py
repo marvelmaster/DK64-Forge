@@ -19,6 +19,25 @@ KONG_COLUMNS = ("DK", "Diddy", "Lanky", "Tiny", "Chunky", "Krusha", "Column6")
 DK_COLUMN = 0  # actor->unk58 == 2 (Model.DK playable) selects column 0
 FLAG_MASK = 0x4000
 
+# Direct playActorAnimation calls bypass the per-character play-slot table.
+# Each entry is a hand-checked character-specific call, not a skeleton inference.
+SOURCE_SCRIPTS = {
+    1: {0x7D: "code_D78D0.c: func_806D2E9C, Rocketbarrel steering",
+        0x7E: "code_D78D0.c: func_806D2E9C, Rocketbarrel neutral",
+        0x7F: "code_D78D0.c: func_806D2E9C, Rocketbarrel steering",
+        0x80: "code_D78D0.c: func_806D2E9C, Rocketbarrel steering",
+        0x81: "code_D78D0.c: func_806D2E9C, Rocketbarrel transition"},
+    2: {0x14F: "code_EFDC0.c: func_806EB6D8, action 0x25 -> Orangstand state 0x3F",
+        0x150: "code_CEAE0.c: func_806CE4E4, Orangstand idle",
+        0x169: "code_E4090.c: pad type 4 -> Lanky state 0x6E, Baboon Balloon",
+        0x16A: "code_D78D0.c: func_806D9FD0, Baboon Balloon exit"},
+    3: {0x17B: "code_EFDC0.c: func_806EB2B8 -> Tiny state 0x22, Pony Tail Twirl"},
+    4: {0x1B2: "code_E4090.c: Chunky B with move level >1 -> action 0x26; code_EFDC0.c: func_806ECA74 -> state 0x24, Primate Punch"},
+}
+
+SOURCE_CLIPS = {2: {0x162: "code_CEAE0.c: func_806CE4E4, Orangstand running gait",
+                    0x163: "code_CEAE0.c: func_806CE4E4, Orangstand walking gait"}}
+
 # Argument byte sizes per opcode, from the getAnimationArg8/16/32 reads of each
 # handler in code_18750.c (dispatch table D_80746BEC, opcodes 0x00-0x5B).
 OPCODE_ARGS = {
@@ -115,4 +134,16 @@ def dk_clip_routes(table: AnimCodeTable, column: int = DK_COLUMN) -> dict[int, l
         for clip, route, op in table.script_clips(script, column):
             routes.setdefault(clip, []).append({"route": "playAnimation", "play_slot": play_slot,
                                                 "script": script, "via": route, "opcode": op})
+    return routes
+
+
+def character_clip_routes(table: AnimCodeTable, column: int) -> dict[int, list[dict]]:
+    """Table-13 routes plus source-proven direct script calls for one Kong."""
+    routes = dk_clip_routes(table, column)
+    for script, evidence in SOURCE_SCRIPTS.get(column, {}).items():
+        for clip, via, opcode in table.script_clips(script, column):
+            routes.setdefault(clip, []).append({"route": "source_script", "script": script,
+                                                "via": via, "opcode": opcode, "evidence": evidence})
+    for clip, evidence in SOURCE_CLIPS.get(column, {}).items():
+        routes.setdefault(clip, []).append({"route": "source_clip", "evidence": evidence})
     return routes

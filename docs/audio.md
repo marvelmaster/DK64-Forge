@@ -67,7 +67,9 @@ The sequence decoder, the song renderer, the export and this tab's layout are ad
 
 ## How close to the game is it?
 
-- **Sound effects** use the game's own samples, decoded exactly, at their sample's own pitch and volume. DK64 has no per-effect pitch/volume table like Jet Force Gemini; the game sets these per call.
+See [status and open work](status.md) for the consolidated backlog. Sample decoding matches 176 of 180 stored ADPCM loop states; four states belonging to three SFX samples still differ, with the cause unknown.
+
+- **Sound effects** use the game's own VADPCM samples at their sample's own pitch and volume, subject to the four unresolved loop-state mismatches above. DK64 has no per-effect pitch/volume table like Jet Force Gemini; the game sets these per call.
 - **Songs** are rendered by Forge. It follows:
   - notes, tempo and instrument key maps;
   - pitch, envelopes and loops;

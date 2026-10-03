@@ -115,7 +115,7 @@ def _segment_usages(data: bytes, start: int, end: int, user: str) -> dict[int, T
     patched = bytearray(data)
     found: dict[int, TextureUsage] = {}
     for pc in range(start - start % 8, min(len(data), end) - 7, 8):
-        if data[pc] == 0xFD and data[pc + 4] in (0x0C, 0x0D, 0x0E):
+        if data[pc] == 0xFD and 0 < data[pc + 4] < 16:
             segment = data[pc + 4]
             # Re-point the image to a marker index so the normal scan records its usage.
             patched[pc + 4:pc + 8] = (0x00FF0000 | segment).to_bytes(4, "big")
@@ -192,25 +192,38 @@ class TextureEntry:
                     if (u.fmt, u.size, u.width, u.height, u.interleaved, u.palette) == best)
 
 
-def scan_bank(rom: bytes, progress=None) -> dict[int, TextureEntry]:
+def scan_bank(rom: bytes, progress=None, *, table: int = 25) -> dict[int, TextureEntry]:
     """Every table-25 texture with all display-list usages found in actors, props and maps."""
     entries: dict[int, TextureEntry] = {}
     sources = ((TABLE_ACTORS, "actor", _actor_ranges), (TABLE_PROPS, "prop", _prop_ranges),
                (TABLE_MAPS, "map", _map_ranges))
-    for table, kind, ranges in sources:
-        for index in range(entry_count(rom, table)):
+    for source_table, kind, ranges in sources:
+        for index in range(entry_count(rom, source_table)):
             found = ranges(rom, index)
             if found is None:
                 continue
             data, start, end = found
+            from . import texture_animation
+            animations = (texture_animation.prop_animations(data) if kind == "prop" else
+                          texture_animation.map_animations(data) if kind == "map" else ())
+            by_key = {a.key: a for a in animations}
             for texture, usage in scan_display_list(data, start, end, f"{kind} {index}"):
-                entry = entries.setdefault(texture, TextureEntry(texture, None))
-                entry.usages.append(usage)
+                animation = by_key.get(texture) if kind == "prop" else None
+                target = 7 if animation else 25
+                if target == table:
+                    for frame in animation.frames if animation else (texture,):
+                        entries.setdefault(frame, TextureEntry(frame, None)).usages.append(usage)
+            if kind == "map" and table == 7:
+                usages = _segment_usages(data, start, end, f"map {index}")
+                for animation in animations:
+                    if animation.key in usages:
+                        for frame in animation.frames:
+                            entries.setdefault(frame, TextureEntry(frame, None)).usages.append(usages[animation.key])
             if progress:
                 progress(kind, index)
     # Actor dynamic texture slots (segments 0x0C-0x0E, e.g. eyes/mouths): every frame of a
     # slot is loaded exactly like the slot's own usage (rom_model.parse_dynamic_textures).
-    for index in range(entry_count(rom, TABLE_ACTORS)):
+    for index in range(entry_count(rom, TABLE_ACTORS) if table == 25 else 0):
         found = _actor_ranges(rom, index)
         if found is None:
             continue
@@ -222,8 +235,8 @@ def scan_bank(rom: bytes, progress=None) -> dict[int, TextureEntry]:
         for slot, usage in _segment_usages(data, start, end, f"actor {index}").items():
             for frame in slots.get(slot, ()):
                 entries.setdefault(frame, TextureEntry(frame, None)).usages.append(usage)
-    for index in range(entry_count(rom, TABLE_TEXTURES)):
-        raw = table_entry(rom, TABLE_TEXTURES, index)
+    for index in range(entry_count(rom, table)):
+        raw = table_entry(rom, table, index)
         if raw is not None:
             entries.setdefault(index, TextureEntry(index, None)).byte_size = len(raw)
     return entries
@@ -330,6 +343,30 @@ def rgba_png(width: int, height: int, rgba: bytes) -> bytes:
 
 # --- names ---------------------------------------------------------------------------------
 
+def decode_mip_levels(raw: bytes, usage: TextureUsage):
+    """Decode complete contiguous mip levels after a raw base image.
+
+    Used for geometry RGBA16 textures; remaining short padding is ignored.
+    Other formats need their own mip/TMEM layout evidence.
+    """
+    if (usage.fmt, usage.size) != (0, 2):
+        return ()
+    width, height = usage.width, usage.height
+    at = width * height * 2
+    levels = []
+    while width > 1 or height > 1:
+        width, height = max(1, width // 2), max(1, height // 2)
+        size = width * height * 2
+        if at + size > len(raw):
+            break
+        mip = TextureUsage(0, 2, width, height, usage.interleaved, None, usage.user)
+        rgba = decode(raw[at:at + size], mip)
+        if rgba is None:
+            break
+        levels.append((width, height, rgba))
+        at += size
+    return tuple(levels)
+
 def user_display_name(user: str, prop_names: dict[int, str | None]) -> str:
     """'actor 3' -> 'DK', 'prop 1' -> 'torches', 'map 7' -> 'Japes'."""
     from .names import ACTOR_MODEL_NAMES, MAP_NAMES
@@ -367,6 +404,7 @@ class BankItem:
     users: tuple[str, ...]           # display names of every model/map using it
     is_palette: bool
     conflicting: bool                # usages disagree on format/size
+    table: int = 25
 
     @property
     def kind(self) -> str:
@@ -381,8 +419,10 @@ class BankItem:
         return TextureUsage(0, 2, 32, self.byte_size // 64, False, None, "guess")
 
 
-def build_bank_items(rom: bytes, progress=None) -> list[BankItem]:
-    bank = scan_bank(rom, progress)
+def build_bank_items(rom: bytes, progress=None, *, table: int = 25) -> list[BankItem]:
+    if table not in (7, 14, 25):
+        raise ValueError("Unsupported texture bank")
+    bank = scan_bank(rom, progress, table=table)
     palettes = {u.palette for entry in bank.values() for u in entry.usages if u.palette is not None}
     prop_names = {index: prop_name(rom, index) for index in range(entry_count(rom, TABLE_PROPS))}
     items = []
@@ -393,13 +433,13 @@ def build_bank_items(rom: bytes, progress=None) -> list[BankItem]:
         users = tuple(dict.fromkeys(user_display_name(user, prop_names) for user in entry.users))
         shapes = {(u.fmt, u.size, u.width, u.height) for u in entry.usages}
         items.append(BankItem(index, entry.byte_size, derived_name(entry, prop_names, palettes),
-                              entry.primary, users, index in palettes, len(shapes) > 1))
+                              entry.primary, users, index in palettes, len(shapes) > 1, table))
     return items
 
 
 def decode_item(rom: bytes, item: BankItem, guess: bool = False) -> tuple[int, int, bytes] | None:
     """(width, height, RGBA8888) for an item's primary usage, its palette, or a GUESS layout."""
-    raw = table_entry(rom, TABLE_TEXTURES, item.index)
+    raw = table_entry(rom, item.table, item.index)
     if raw is None:
         return None
     usage = item.usage
@@ -410,6 +450,6 @@ def decode_item(rom: bytes, item: BankItem, guess: bool = False) -> tuple[int, i
         usage = item.guess_usage()
     if usage is None:
         return None
-    palette = table_entry(rom, TABLE_TEXTURES, usage.palette) if usage.palette is not None else None
+    palette = table_entry(rom, item.table, usage.palette) if usage.palette is not None else None
     rgba = decode(raw, usage, palette)
     return None if rgba is None else (usage.width, usage.height, rgba)

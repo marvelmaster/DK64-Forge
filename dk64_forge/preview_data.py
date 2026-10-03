@@ -6,7 +6,8 @@ Playback displays exact exported interior integer samples at the selected
 diagnostic display rate.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from .core.rdp import MaterialState
 import json
 from pathlib import Path
 import struct
@@ -95,6 +96,41 @@ class PreviewScene:
     bind_normals: np.ndarray | None = None
     texgen: TexgenVertices | None = None
     posed_normals: np.ndarray | None = None
+    dynamic_materials: dict | None = None
+    texture_sources: dict | None = None
+
+    def texture_frame(self, source, frame: int):
+        from .core import texture_bank, rom_model
+        slots = rom_model.parse_dynamic_textures(source.actor)
+        textures = []
+        for texture in self.render_data.textures:
+            image_info = (self.texture_sources or {}).get(texture.texture_index)
+            slot_info = (self.dynamic_materials or {}).get(texture.texture_index)
+            if image_info:
+                image, interleaved = image_info
+                raw = texture_bank.table_entry(source.normalized, 25, image)
+                usage = texture_bank.TextureUsage(0, 2, texture.width, texture.height, interleaved, None, "actor")
+                if raw:
+                    texture = replace(texture, mip_levels=texture_bank.decode_mip_levels(raw, usage))
+            if slot_info and slots.get(slot_info[0]):
+                slot, interleaved = slot_info
+                frames = slots[slot]
+                raw = texture_bank.table_entry(source.normalized, 25, frames[frame % len(frames)])
+                usage = texture_bank.TextureUsage(0, 2, texture.width, texture.height, interleaved, None, "actor")
+                rgba = texture_bank.decode(raw, usage) if raw else None
+                if rgba is not None:
+                    texture = replace(texture, rgba=rgba, mip_levels=texture_bank.decode_mip_levels(raw, usage))
+            textures.append(texture)
+        return tuple(textures)
+
+    def shade_colors(self):
+        normals = self.posed_normals if self.posed_normals is not None else self.bind_normals
+        if normals is None:
+            return None
+        light = np.asarray((0.35, 0.8, 0.5))
+        light /= np.linalg.norm(light)
+        level = 0.55 + 0.45 * np.maximum(0, normals @ light)
+        return tuple((float(v), float(v), float(v), 1.0) for v in level)
 
     def texgen_uvs(self, eye, at, up=(0.0, 1.0, 0.0)) -> np.ndarray | None:
         """Regenerate RSP texgen UVs for the current pose and a viewer camera."""
@@ -148,16 +184,18 @@ class PreviewScene:
         return cls.from_animation(source, character.default_animation if character else 4)
 
     @classmethod
-    def from_animation(cls, source, animation_id: int) -> "PreviewScene":
+    def from_animation(cls, source, animation_id: int, *, procedural_hair=False) -> "PreviewScene":
         with TemporaryDirectory(prefix="dk64_forge_preview_") as folder:
             gltf = Path(folder) / f"dk_anim_{animation_id:04X}_preview.gltf"
             result = export_gltf(source, gltf, ExportKind.ANIMATED,
-                                 animation_id=animation_id)
+                                 animation_id=animation_id, procedural_hair=procedural_hair)
             doc = json.loads(gltf.read_text(encoding="utf-8"))
             blob = gltf.with_name(doc["buffers"][0]["uri"]).read_bytes()
             character = getattr(source, "character", None)
             expected_triangles = character.triangles if character else 704
-            return cls._from_gltf(doc, blob, gltf.parent, result.validation, expected_triangles)
+            scene = cls._from_gltf(doc, blob, gltf.parent, result.validation, expected_triangles)
+            scene.render_data = replace(scene.render_data, textures=scene.texture_frame(source, 0))
+            return scene
 
     @classmethod
     def _from_gltf(cls, doc: dict, blob: bytes, base: Path, validation: dict,
@@ -185,6 +223,8 @@ class PreviewScene:
         joints = []
         batches = []
         used_textures = set()
+        dynamic_materials = {}
+        texture_sources = {}
         for primitive in doc["meshes"][0]["primitives"]:
             attrs = primitive["attributes"]
             source_positions = _accessor(doc, blob, attrs["POSITION"])
@@ -221,6 +261,10 @@ class PreviewScene:
                 texgen_rows.append(texgen_row or (False, False, False, (0, 0), (1, 1), (0, 0), (0, 0), 0.0,
                                                False, (0, 0), (1, 1)))
                 uvs.append(source_uvs[index] if source_uvs is not None else (0.0, 0.0))
+            if texture_index is not None and extras.get("source_texture_entry") is not None:
+                texture_sources[texture_index] = (extras["source_texture_entry"], extras.get("odd_lines_swapped", False))
+            if texture_index is not None and extras.get("dynamic_slot") is not None:
+                dynamic_materials[texture_index] = (extras["dynamic_slot"], extras.get("odd_lines_swapped", False))
             untextured = "dk64_untextured_shade" in extras
             batches.append(PreparedBatch(
                 first_vertex=first, vertex_count=len(indices),
@@ -236,6 +280,7 @@ class PreviewScene:
                     "G_TEXTURE_GEN has no fixed UV in the verified export",
                 alpha_mode=material.get("alphaMode", "OPAQUE"),
                 z_mode=3 if extras.get("dk64_z_mode") == "decal" else 0,
+                material=MaterialState.from_json(extras.get("dk64_rdp_material", {})),
             ))
         if len(positions) != expected_triangles * 3 or any(j >= joint_count for j in joints):
             raise ValueError("preview triangle/joint assignment count differs from the character")
@@ -289,7 +334,7 @@ class PreviewScene:
                                 column(10, np.float64))
         return cls(data, bind_points, np.asarray(joints, dtype=np.int32), parents,
                    inverse_binds, samples, bind_globals, metadata,
-                   np.asarray(normals, dtype=np.float64), texgen)
+                   np.asarray(normals, dtype=np.float64), texgen, dynamic_materials=dynamic_materials, texture_sources=texture_sources)
 
     @staticmethod
     def _globals(locals_, parents):

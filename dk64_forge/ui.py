@@ -20,7 +20,7 @@ from PySide6.QtCore import QElapsedTimer, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QShortcut, QSurfaceFormat
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
-    QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider,
+    QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox,
     QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -89,9 +89,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.source = source
         self.preview = preview
-        # Keyed by (character key, model variant, Table-11 id); starts with the default clip.
-        self._preview_cache: OrderedDict[tuple[str, str, int], PreviewScene] = OrderedDict(
-            (((source.character.key, source.character.variant, source.character.default_animation), preview),))
+        # Keyed by character, model variant, Table-11 id and procedural hair mode.
+        self._preview_cache: OrderedDict[tuple[str, str, int, bool], PreviewScene] = OrderedDict(
+            (((source.character.key, source.character.variant, source.character.default_animation, False), preview),))
         self._selected_animation_id: int | None = None
         self._on_rom_selected = on_rom_selected
         self._playing = False
@@ -116,18 +116,21 @@ class MainWindow(QMainWindow):
         self.viewport.set_uv_provider(
             lambda eye, target: self.preview.texgen_uvs(eye, target))
         self.viewport.initialization_failed.connect(self._show_renderer_error)
+        self._update_attachment()
         splitter.addWidget(self.viewport)
         splitter.setSizes([260, 920])
         splitter.setStretchFactor(1, 1)
-        # Tabbed layout as in JFG Forge; further tabs (Textures, Models, Levels, Audio)
-        # are added by their own modules.
         self.tabs = QTabWidget()
-        self.tabs.addTab(splitter, "Characters")
-        self.models_tab = ModelBrowserTab(source.normalized, (KIND_ACTOR, KIND_PROP), "Models (actors and props)")
+        self.model_tabs = QTabWidget()
+        self.model_tabs.addTab(splitter, "Characters")
+        self.models_tab = ModelBrowserTab(source.normalized, (KIND_ACTOR, KIND_PROP), "Other models (actors and props)")
         self.levels_tab = ModelBrowserTab(source.normalized, (KIND_MAP,), "Levels (map geometry)")
-        for tab, label in ((self.models_tab, "Models"), (self.levels_tab, "Levels")):
-            tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
-            self.tabs.addTab(tab, label)
+        self.models_tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
+        self.levels_tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
+        self.model_tabs.addTab(self.models_tab, "Other models")
+        self.model_tabs.currentChanged.connect(self._model_tab_changed)
+        self.tabs.addTab(self.model_tabs, "Models")
+        self.tabs.addTab(self.levels_tab, "Levels")
         self.audio_tab = AudioTab(source.normalized)
         self.tabs.addTab(self.audio_tab, "Audio")
         self.texture_tab = TextureTab(source.normalized)
@@ -210,6 +213,17 @@ class MainWindow(QMainWindow):
             form.addRow(label, widget)
         layout.addLayout(form)
 
+        self.texture_frame_spin = QSpinBox()
+        self.texture_frame_spin.setRange(0, 255)
+        self.texture_frame_spin.setPrefix("Eyes / mouth frame ")
+        self.texture_frame_spin.setToolTip("ROM texture-slot frame, wrapped per slot. Game blink and mouth scripts are not simulated.")
+        self.texture_frame_spin.valueChanged.connect(self._texture_frame_changed)
+        layout.addWidget(self.texture_frame_spin)
+        self.hair_check = QCheckBox("Tiny procedural hair (diagnostic)")
+        self.hair_check.setToolTip("Game pendulum equations with clip-space head-Y as an anchor proxy; Actor speed/heading zero. Requires live capture for exact game motion.")
+        self.hair_check.setVisible(self.source.character.key == "tiny")
+        self.hair_check.toggled.connect(lambda _checked: self._select_animation())
+        layout.addWidget(self.hair_check)
         animation_heading = QLabel("Animation Browser")
         animation_heading.setStyleSheet("font-weight: bold; font-size: 15px; margin-top: 12px;")
         layout.addWidget(animation_heading)
@@ -375,7 +389,9 @@ class MainWindow(QMainWindow):
     def _apply_character_info(self) -> None:
         """Model info, joint list and filter text for the active character."""
         spec = self.source.character
+        self.hair_check.setVisible(spec.key == "tiny")
         self.model_name_value.setText(spec.display_name)
+        self._update_attachment()
         self.model_prop_value.setText(f"Model {spec.model_id} · table 5 / {spec.table5_entry}")
         self.model_source_vertices_value.setText(str(spec.vertices))
         self.model_render_vertices_value.setText(str(len(self.preview.render_data.positions)))
@@ -386,7 +402,7 @@ class MainWindow(QMainWindow):
             f"{len(self.preview.render_data.textures)} textures "
             f"({spec.stored_uv_triangles} stored-UV / {spec.texgen_triangles} texgen faces)")
         short = "DK" if spec.key == "dk" else spec.name.split()[0]
-        self.dk_only_check.setText(f"Only {short} clips (Table-13 animation code)")
+        self.dk_only_check.setText(f"Only {short} clips (animation code + source calls)")
         self.dk_only_check.setToolTip(
             f"Hide structurally compatible clips that {spec.name}'s animation code never plays.")
         with QSignalBlocker(self.joint_combo):
@@ -444,6 +460,32 @@ class MainWindow(QMainWindow):
         """Entry 4 is only special for DK (bit-exact root and observed timing)."""
         return animation_id == 4 and self.source.character.key == "dk"
 
+    def _update_attachment(self):
+        if not hasattr(self, "viewport"):
+            return
+        from dataclasses import replace
+        from . import static_model
+        self._attachment_bind_positions = None
+        if self.source.character.key == "dk" and self.source.character.variant == "instrument":
+            model = static_model.actor_model(self.source.normalized, 0xA5, static_model.TextureCache(self.source.normalized))
+            if model is not None:
+                points = tuple(tuple(v * 1.25 for v in p) for p in model.render.positions)
+                data = replace(model.render, positions=points)
+                self._attachment_bind_positions = points
+                self.viewport.set_attachment_data(data)
+                return
+        self.viewport.set_attachment_data(None)
+
+    def _texture_frame_changed(self, *_args) -> None:
+        self.viewport.set_textures(self.preview.texture_frame(self.source, self.texture_frame_spin.value()))
+
+    def _model_tab_changed(self, index: int) -> None:
+        if index == 0:
+            self.models_tab.pause()
+        if index == 1:
+            self._pause()
+            self.models_tab.ensure_loaded()
+
     def _tab_changed(self, index: int) -> None:
         """Tabs load their data the first time they are opened (as in JFG Forge)."""
         widget = self.tabs.widget(index)
@@ -451,6 +493,10 @@ class MainWindow(QMainWindow):
             widget.ensure_loaded()
         if index != 0:
             self._pause()
+        if widget is not self.model_tabs:
+            self.models_tab.pause()
+        if widget is not self.levels_tab:
+            self.levels_tab.pause()
         if widget is not self.audio_tab:
             self.audio_tab.stop()
 
@@ -567,7 +613,10 @@ class MainWindow(QMainWindow):
             path = path.with_suffix(".gltf")
         try:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            result = (export_gltf(self.source, path, kind)
+            if self.source.character.key == "tiny" and self.hair_check.isChecked() and kind in (ExportKind.ANIMATED, ExportKind.ANIMATION_ONLY):
+                result = export_gltf(self.source, path, kind, animation_id=animation_id, procedural_hair=True)
+            else:
+                result = (export_gltf(self.source, path, kind)
                       if kind is ExportKind.STATIC_TEXTURED or (
                           kind is ExportKind.ANIMATED and self._is_reference(animation_id))
                       else export_gltf(self.source, path, kind, animation_id=animation_id))
@@ -601,11 +650,11 @@ class MainWindow(QMainWindow):
         self._pause()
         animation_id = self.animation_combo.currentData()
         animated = animation_id is not None
-        cache_key = (self.source.character.key, self.source.character.variant, animation_id)
+        cache_key = (self.source.character.key, self.source.character.variant, animation_id, self.hair_check.isChecked() and self.source.character.key == "tiny")
         if animated and cache_key not in self._preview_cache:
             try:
                 QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-                scene = PreviewScene.from_animation(self.source, animation_id)
+                scene = PreviewScene.from_animation(self.source, animation_id, procedural_hair=cache_key[-1])
             except Exception as exc:
                 QMessageBox.critical(self, "DK64 Forge animation preview error",
                                      f"Table-11 entry {animation_id:04X}: {exc}")
@@ -642,6 +691,7 @@ class MainWindow(QMainWindow):
             self.animation_ownership_value.setText(
                 f"{name} (Table-13 animation code + runtime)" if descriptor.ownership.endswith("+RUNTIME")
                 else f"{name} (Table-13 animation code)" if descriptor.ownership.endswith("STATIC_TABLE13")
+                else f"{name} (character-specific source call)" if descriptor.ownership.endswith("STATIC_SOURCE")
                 else "DK runtime observed" if descriptor.ownership == "DK_OWNERSHIP_VERIFIED_RUNTIME"
                 else f"not in {name}'s animation code; structurally compatible")
             self.animation_semantic_value.setText(descriptor.semantic_evidence)
@@ -649,8 +699,9 @@ class MainWindow(QMainWindow):
                 "included; Entry-4 scalar verified" if self._is_reference(animation_id)
                 else "included; scalar is a diagnostic assumption")
             self.animation_context_value.setText(
-                "Origin-centered; Actor/world placement and adjustment rows omitted; "
-                "runtime_faithful=false")
+                "Origin-centered; Tiny procedural hair diagnostic uses head-Y proxy; world speed/heading omitted; runtime_faithful=false"
+                if self.preview.metadata.get("adjustments_applied") else
+                "Origin-centered; Actor/world placement and adjustment rows omitted; runtime_faithful=false")
             with QSignalBlocker(self.time_slider):
                 self.time_slider.setRange(descriptor.safe_first, descriptor.safe_last)
                 self.time_slider.setValue(descriptor.safe_first)
@@ -666,12 +717,16 @@ class MainWindow(QMainWindow):
             self.animation_semantic_value.setText("not applicable")
             self.animation_prefix_value.setText("not applicable")
         if animated:
+            self._texture_frame_changed()
             self._show_frame(self.preview.safe_first)
             self._start_playback()
         else:
+            if self._attachment_bind_positions is not None:
+                self.viewport.set_attachment_positions(self._attachment_bind_positions)
             self.playback_state_label.setText("Static")
             positions, skeleton = self.preview.bind_pose()
             self.viewport.set_scene_data(positions, skeleton)
+            self.viewport.set_vertex_colors(self.preview.shade_colors())
             self._last_skeleton = skeleton
             self.time_label.setText("Static canonical model")
             self.sample_label.setText(f"Hand-state mask {self.source.character.hand_mask}")
@@ -699,6 +754,14 @@ class MainWindow(QMainWindow):
         self._current_frame = max(first, min(last, frame))
         positions, skeleton = self.preview.pose(self._current_frame)
         self.viewport.set_scene_data(positions, skeleton)
+        self.viewport.set_vertex_colors(self.preview.shade_colors())
+        if self._attachment_bind_positions is not None:
+            import numpy as np
+            sample = self.preview.local_samples[self._current_frame - first]
+            root = self.preview._globals(sample, self.preview.parent_ordinals)[0]
+            points = np.asarray(self._attachment_bind_positions)
+            posed = points @ root[:3, :3].T + root[:3, 3]
+            self.viewport.set_attachment_positions(tuple(tuple(float(v) for v in p) for p in posed))
         self._last_skeleton = skeleton
         with QSignalBlocker(self.time_slider):
             self.time_slider.setValue(self._current_frame)

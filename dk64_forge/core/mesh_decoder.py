@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 import math
 import struct
 
-from . import rom_model, texture_bank
+from . import rom_model, texture_bank, rdp
 
 G_CULL_BACK, G_LIGHTING, G_TEXTURE_GEN = 0x00000400, 0x00020000, 0x00040000
 SLOTS = 64  # F3DEX2 vertex buffer
@@ -38,7 +38,7 @@ class DrawTexture:
     usage: texture_bank.TextureUsage
     wrap_s: int           # G_TX_WRAP 0 / MIRROR 1 / CLAMP 2
     wrap_t: int
-    table: int = 25       # 25 geometry textures, or 7 (uncompressed) as a fallback
+    table: int = 25       # 25 static geometry, 7 source-proven animation frames
 
 
 @dataclass
@@ -47,6 +47,10 @@ class StaticMesh:
     uvs: list[tuple[float, float]] = field(default_factory=list)
     colors: list[tuple[float, float, float, float]] = field(default_factory=list)
     textures: list[DrawTexture | None] = field(default_factory=list)  # one per triangle
+    secondary_textures: list[DrawTexture | None] = field(default_factory=list)
+    secondary_uvs: list[tuple[float, float]] = field(default_factory=list)
+    joints: list[int] = field(default_factory=list)
+    materials: list[rdp.MaterialState] = field(default_factory=list)
     culled: list[bool] = field(default_factory=list)                 # G_CULL_BACK per triangle
     stats: dict = field(default_factory=dict)
 
@@ -63,6 +67,7 @@ class _Vertex:
     rgba: bytes
     lit: bool
     texgen: bool
+    joint: int = 0
 
 
 def _signed(value: int, bits: int) -> int:
@@ -71,12 +76,14 @@ def _signed(value: int, bits: int) -> int:
 
 class _State:
     def __init__(self) -> None:
+        self.material = rdp.MaterialState()
         self.geometry = G_LIGHTING
         self.scale = (0xFFFF, 0xFFFF)
         self.texture_on = False
         self.image = None       # (address, fmt, size)
         self.tiles: dict[int, dict] = {}
         self.sizes: dict[int, tuple[int, int, int, int]] = {}
+        self.loaded_images = {}
         self.loaded = None      # (address, interleaved)
         self.palette = None
         self.bilerp = True
@@ -84,7 +91,7 @@ class _State:
 
 
 def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
-           conditional_mask: int | None = None, max_triangles: int = 400_000) -> StaticMesh:
+           conditional_mask: int | None = None, dynamic_table: int = 25, image_overrides=None, dynamic_groups=None, max_triangles: int = 400_000) -> StaticMesh:
     """Decode display-list byte ranges into a static, textured triangle list.
 
     ranges: iterable of (start, end, {segment: vertex_base_offset_in_data}).
@@ -98,9 +105,15 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
     mesh = StaticMesh()
     tables = _TextureTables(rom)
     unsupported: dict[str, int] = {}
-    for start, end, segments in ranges:
+    for item in ranges:
+        start, end, segments = item[:3]
+        range_dynamic = dynamic
+        if dynamic_groups is not None and len(item) == 4:
+            range_dynamic = dict(dynamic_groups.get(255, {}))
+            range_dynamic.update(dynamic_groups.get(item[3], {}))
         state = _State()
         offset = (0.0, 0.0, 0.0)
+        current_bone = 0
         stack = [(start, end)]
         visited = 0
         while stack:
@@ -113,6 +126,7 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
                 w0 = int.from_bytes(data[pc:pc + 4], "big")
                 w1 = int.from_bytes(data[pc + 4:pc + 8], "big")
                 pc += 8
+                state.material = state.material.command(w0, w1)
                 if op == 0xDF:  # G_ENDDL
                     break
                 if op == 0x01:  # G_VTX
@@ -131,13 +145,13 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
                             break
                         x, y, z, _flag, s, t = struct.unpack(">hhhHhh", record[:12])
                         state.cache[first + i] = _Vertex(
-                            (x + offset[0], y + offset[1], z + offset[2]), s, t, record[12:16], lit, texgen)
+                            (x + offset[0], y + offset[1], z + offset[2]), s, t, record[12:16], lit, texgen, current_bone)
                 elif op in (0x05, 0x06, 0x07):  # G_TRI1 / G_TRI2 / G_QUAD
                     triples = [data[pc - 7:pc - 4]]
                     if op != 0x05:
                         triples.append(data[pc - 3:pc])
                     for raw in triples:
-                        _emit(mesh, state, [index // 2 for index in raw], tables, dynamic)
+                        _emit(mesh, state, [index // 2 for index in raw], tables, range_dynamic, dynamic_table, image_overrides)
                 elif op == 0xD9:  # G_GEOMETRYMODE
                     state.geometry = (state.geometry & (w0 & 0xFFFFFF | 0xFF000000)) | w1
                 elif op == 0xD7:  # G_TEXTURE
@@ -147,7 +161,7 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
                     state.image = (w1, (w0 >> 21) & 7, (w0 >> 19) & 3)
                 elif op == 0xF5:  # G_SETTILE
                     state.tiles[(w1 >> 24) & 7] = {
-                        "fmt": (w0 >> 21) & 7, "size": (w0 >> 19) & 3,
+                        "fmt": (w0 >> 21) & 7, "size": (w0 >> 19) & 3, "tmem": w0 & 511,
                         "cmt": (w1 >> 18) & 3, "mask_t": (w1 >> 14) & 15, "shift_t": (w1 >> 10) & 15,
                         "cms": (w1 >> 8) & 3, "mask_s": (w1 >> 4) & 15, "shift_s": w1 & 15}
                 elif op == 0xF2:  # G_SETTILESIZE
@@ -157,8 +171,10 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
                     state.sizes[tile] = ((lrs - uls) // 4 + 1, (lrt - ult) // 4 + 1, uls, ult)
                 elif op == 0xF3 and state.image is not None:  # G_LOADBLOCK
                     state.loaded = (state.image[0], (w1 & 0xFFF) == 0)
+                    state.loaded_images[state.tiles.get((w1 >> 24) & 7, {}).get("tmem", 0)] = state.loaded
                 elif op == 0xF4 and state.image is not None:  # G_LOADTILE
                     state.loaded = (state.image[0], False)
+                    state.loaded_images[state.tiles.get((w1 >> 24) & 7, {}).get("tmem", 0)] = state.loaded
                 elif op == 0xF0 and state.image is not None and state.image[0] >> 24 == 0:
                     state.palette = state.image[0] & 0xFFFFFF
                 elif op == 0xE3:  # G_SETOTHERMODE_H: texture filter field
@@ -169,6 +185,7 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
                 elif op == 0xDA:  # G_MTX: actor bones select their rest offset
                     if bone_offsets is not None and w1 >> 24 == 4:
                         bone = (w1 & 0xFFFFFF) // 0x40
+                        current_bone = bone
                         offset = bone_offsets.get(bone, (0.0, 0.0, 0.0))
                     else:
                         unsupported["G_MTX (rest pose)"] = unsupported.get("G_MTX (rest pose)", 0) + 1
@@ -197,13 +214,7 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
 
 
 class _TextureTables:
-    """Chooses the pointer table of a segment-0 image index.
-
-    DIAGNOSTIC ASSUMPTION: display lists name images by index; maps and actors resolve to
-    table 25. Some props (e.g. the torch flame, 16x64 RGBA32 frames 0x8C-0x97) only fit an
-    entry of table 7 (uncompressed textures) exactly while their table-25 entry is too
-    small. So: table 25 when its entry is large enough, else table 7 when it is.
-    """
+    """Texture entry sizes; table selection comes from each ROM animation descriptor."""
 
     def __init__(self, rom: bytes) -> None:
         self.rom = rom
@@ -216,19 +227,18 @@ class _TextureTables:
             self._sizes[key] = len(data) if data else 0
         return self._sizes[key]
 
-    def choose(self, index: int, needed: int) -> int:
-        if self.size(25, index) >= needed or self.size(7, index) < needed:
-            return 25
-        return 7
 
 
-def _emit(mesh: StaticMesh, state: _State, slots, tables: _TextureTables, dynamic) -> None:
+def _emit(mesh: StaticMesh, state: _State, slots, tables: _TextureTables, dynamic, dynamic_table, image_overrides) -> None:
     if any(not 0 <= slot < SLOTS or state.cache[slot] is None for slot in slots):
         return
     vertices = [state.cache[slot] for slot in slots]
-    texture = _draw_texture(state, dynamic, tables)
+    texture = _draw_texture(state, dynamic, tables, dynamic_table, image_overrides)
+    texture1 = _draw_texture(state, dynamic, tables, dynamic_table, image_overrides, tile_index=1)
+    mesh.secondary_textures.append(texture1)
     for vertex in vertices:
         mesh.positions.append(vertex.position)
+        mesh.joints.append(vertex.joint)
         if vertex.lit:
             # Lit vertices carry a normal: shade with a simple fixed key light (preview only).
             normal = [_signed(b, 8) / 127.0 for b in vertex.rgba[:3]]
@@ -239,26 +249,35 @@ def _emit(mesh: StaticMesh, state: _State, slots, tables: _TextureTables, dynami
         else:
             mesh.colors.append(tuple(b / 255.0 for b in vertex.rgba))
         mesh.uvs.append(_uv(state, vertex, texture))
+        mesh.secondary_uvs.append(_uv(state, vertex, texture1, tile_index=1))
+    mesh.materials.append(state.material)
     mesh.textures.append(texture)
     mesh.culled.append(bool(state.geometry & G_CULL_BACK))
 
 
-def _draw_texture(state: _State, dynamic, tables: _TextureTables) -> DrawTexture | None:
+def _draw_texture(state: _State, dynamic, tables: _TextureTables, dynamic_table=25, image_overrides=None, tile_index=0) -> DrawTexture | None:
     if not state.texture_on or state.loaded is None:
         return None
-    tile = state.tiles.get(0)
+    tile = state.tiles.get(tile_index)
     if tile is None:
         return None
-    address, interleaved = state.loaded
+    loaded = state.loaded_images.get(tile.get("tmem", 0), state.loaded if tile_index == 0 else None)
+    if loaded is None:
+        return None
+    address, interleaved = loaded
     segment = address >> 24
+    table = 25
     if segment == 0:
         image = address & 0xFFFFFF
+        if image_overrides and image in image_overrides:
+            table, image = image_overrides[image]
     elif dynamic and segment in dynamic and dynamic[segment]:
-        image = dynamic[segment][0]  # first frame, as for the Kongs
+        table = dynamic_table
+        image = dynamic[segment][0]
     else:
         return None
-    if 0 in state.sizes:
-        width, height, _uls, _ult = state.sizes[0]
+    if tile_index in state.sizes:
+        width, height, _uls, _ult = state.sizes[tile_index]
     elif tile["mask_s"] and tile["mask_t"]:
         width, height = 1 << tile["mask_s"], 1 << tile["mask_t"]
     else:
@@ -266,15 +285,15 @@ def _draw_texture(state: _State, dynamic, tables: _TextureTables) -> DrawTexture
     usage = texture_bank.TextureUsage(tile["fmt"], tile["size"], width, height, interleaved,
                                       state.palette if tile["fmt"] == 2 else None, "draw")
     needed = width * height * texture_bank.SIZES.get(tile["size"], 16) // 8
-    return DrawTexture(image, usage, tile["cms"], tile["cmt"], tables.choose(image, needed))
+    return DrawTexture(image, usage, tile["cms"], tile["cmt"], table)
 
 
-def _uv(state: _State, vertex: _Vertex, texture: DrawTexture | None) -> tuple[float, float]:
+def _uv(state: _State, vertex: _Vertex, texture: DrawTexture | None, tile_index=0) -> tuple[float, float]:
     if texture is None:
         return 0.0, 0.0
     width, height = texture.usage.width, texture.usage.height
-    tile = state.tiles.get(0, {})
-    uls, ult = state.sizes.get(0, (0, 0, 0, 0))[2:]
+    tile = state.tiles.get(tile_index, {})
+    uls, ult = state.sizes.get(tile_index, (0, 0, 0, 0))[2:]
     if vertex.texgen:
         normal = [_signed(b, 8) / 127.0 for b in vertex.rgba[:3]]
         # Spherical texgen for a front camera (right = +X, up = +Y), Phase 1G formula.
@@ -311,21 +330,22 @@ def prop_ranges(data: bytes):
     return ranges
 
 
-def map_ranges(data: bytes):
+def map_ranges(data: bytes, *, with_chunk: bool = False):
     """Map geometry: per chunk up to four display lists using the chunk's vertex block."""
     dl_start = int.from_bytes(data[0x34:0x38], "big")
     vertex_start = int.from_bytes(data[0x38:0x3C], "big")
     chunk_start = int.from_bytes(data[0x68:0x6C], "big")
     chunk_end = int.from_bytes(data[0x6C:0x70], "big")
     ranges = []
-    for at in range(chunk_start, chunk_end - 51, 52):
+    for chunk, at in enumerate(range(chunk_start, chunk_end - 51, 52)):
         words = [int.from_bytes(data[at + k:at + k + 4], "big") for k in range(12, 52, 4)]
         vertex_offset = words[8]
         for dl_offset, size in zip(words[0:8:2], words[1:8:2]):
             if dl_offset == 0xFFFFFFFF or size == 0:
                 continue
             begin = dl_start + dl_offset
-            ranges.append((begin, begin + size, {6: vertex_start + vertex_offset, 7: dl_start}))
+            row = (begin, begin + size, {6: vertex_start + vertex_offset, 7: dl_start})
+            ranges.append(row + (chunk,) if with_chunk else row)
     return ranges
 
 

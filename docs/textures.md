@@ -1,47 +1,33 @@
-# The Textures tab
+# Textures
 
-The **Textures** tab is a browsable bank of the ROM's geometry textures (pointer table 25, 6,011 non-empty entries). It shows a pixel preview of each texture with its format and size, lists the actors, props and maps that use it, and exports PNG files.
+The **Textures** tab browses three banks, with search, usage filters, pixel preview and PNG export:
 
-## Using it
-
-- **Search** by name, by number (decimal or `0x` hex) or by a user, e.g. `japes` or `torches`.
-- **Show** lets you filter: all textures, decoded or not decoded, used by a model or map, unused (no reference found), or palettes.
-- **Sort by** number, name or byte size.
-- Click a texture to see it at an integer zoom.
-- **Export PNG...** saves the selected texture. **Export shown list as PNG files...** saves every decodable texture in the current filter. Files are named like `T0E64_DK_14_32_32.png`.
-- The tab scans the ROM the first time you open it (a few seconds).
-
-## Where formats and names come from
-
-**The ROM stores raw texels only.** Each texture has no header, format, size or name. Forge therefore reads every display list of the 236 actor models (table 5), the model-two props (table 4) and the maps (table 1), and records each time a texture is loaded:
-
-- `G_SETTIMG` gives the image, as segment 0 plus a table-25 index.
-- `G_SETTILE` gives the format, and `G_SETTILESIZE` the width and height of the render tile.
-- `G_LOADBLOCK` gives the texel count and `dxt`. With `dxt = 0` the image is stored pre-interleaved in RAM; Forge undoes this on odd rows, as verified for the Kongs.
-- `G_LOADTLUT` marks the palette of CI images.
-
-The dynamic texture slots of actors (eyes, mouths) give their frames the slot's usage.
-
-When users load a texture in different ways, the most common way is shown and the info panel says so.
-
-**Names are derived:** from the first user, then `+N` for the other users, then the size, e.g. `Japes Mountain +3 · 32×32`.
-
-- Actor names come from the DK64 Randomizer model list (COMMUNITY, MIT).
-- Map names come from the decompilation's map enum (CC0).
-- Prop names are stored in the ROM itself, at the model-two header offset `0x0C` (e.g. `torches`).
-
-Treat all names as labels, not the game's own names.
-
-## Decoding and limits
-
-| Status | Count | Meaning |
+| Bank | Non-empty entries | Format evidence |
 |---|---:|---|
-| Used and decoded | ~3,820 | Format from usage. Covers RGBA16, RGBA32, CI4/CI8 (RGBA16 palette), IA4/IA8/IA16 and I4/I8 |
-| Used, not decoded | ~165 | CI images without a full palette found by the scan, entries smaller than their usage, or invalid format/size pairs |
-| Palettes | ~811 | 16- or 256-colour RGBA16 tables, shown as a colour strip |
-| Unused | ~1,212 | No actor, prop or map loads them; e.g. map texture animations and images used by game code |
+| 25 — Geometry | 6,011 | Display-list usages and actor dynamic slots |
+| 7 — Uncompressed | 993 | Map/prop animation descriptors and associated draw state |
+| 14 — HUD | 167 | Manual format/size selection; HUD draw usages are not yet traced |
 
-- The decoders were checked visually per format. The Kong body texture `0xE64` is pixel-identical to the verified Kong decoder.
-- I and IA images are shown as grey with their alpha. RGBA32 interleaving is not undone (same choice as JFG Forge).
-- **Unused** data has no known format. The **GUESS** checkbox previews it as RGBA16 with 32 texels per row; that is a guess, not evidence.
-- Not covered yet: tables 7 (uncompressed textures, 993 entries) and 14 (HUD, 167 entries), map texture animation frames, and a per-texture frame slider.
+The ROM stores raw texels without names or format headers. Unknown data cannot be decoded reliably from its byte length alone.
+
+## Usage
+
+Choose the bank, search a name/ID/user, and select a texture for integer-zoom preview. **Show** filters decoded, undecoded, used, unused and palettes; sorting uses number/name/size. The first visit scans actor, prop and map display lists.
+
+**Manual decode** selects RGBA16/RGBA32, IA4/IA8/IA16 or I4/I8, width/height and row interleaving. This is particularly useful for bank 14; the preview is explicitly unverified. **GUESS** instead tries RGBA16 at 32 texels per row. Neither option establishes the game's format. CI images need usage-derived palettes.
+
+**Export PNG** saves the current selected decode, including a manual preview. **Export shown list as PNG files** exports known usage-derived decodes; it does not apply one manual layout to the whole bank. Filenames include the bank, for example `T25_0E64_DK_14_32_32.png`, to avoid collisions.
+
+Animation frame selection lives in the Characters and Other models/Levels panels. A frame in this browser is a separate bank entry, linked through its recorded users.
+
+## How formats are established
+
+`G_SETTIMG` identifies the image; tile state gives format, dimensions, wrap and shift; texture loads give interleaving; `G_LOADTLUT` identifies CI palettes. Actor eye/mouth frames inherit the slot's usage. Map and prop animation frames inherit their associated draw usage and are recorded in table 7.
+
+Static prop images are loaded from table 25; animated prop frames use table 7 (`80639CD0`, with descriptors read at `806349FC`). Maps bind table-7 frames to per-chunk dynamic segments (`8062EDA8`/`8062EE48`). The earlier size-based automatic table fallback has been removed.
+
+Current scan: bank 25 has 3,947 used entries and 4,689 decodable entries including palettes; bank 7 has 557 used/decodable entries. These sets overlap and do not form a partition. Unreferenced data and HUD entries need further format evidence.
+
+Names derive from the first actor/prop/map user and size; actor names are community labels from DK64 Randomizer, map names come from the decompilation, and prop names come from ROM headers. Treat these as labels rather than official texture names.
+
+The Kong body texture `0xE64` remains pixel-identical to the reference decoder. I/IA previews are grey with alpha. RGBA32 odd-row swapping is not applied. Undecodable CI usages, exact TMEM/interleaving behavior, unused formats, HUD palettes and gameplay expression scripts remain open; see [status](status.md).

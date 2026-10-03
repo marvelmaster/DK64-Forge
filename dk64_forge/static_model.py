@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .core import mesh_decoder, rom_model, texture_bank
+from .core import mesh_decoder, rom_model, texture_bank, texture_animation
 from .render_data import PreparedBatch, PreparedRenderData, PreparedTexture
 
 WRAP_NAMES = {0: "REPEAT", 1: "MIRROR", 2: "CLAMP", 3: "CLAMP"}
@@ -24,6 +24,7 @@ class StaticModel:
     textures: int
     missing_textures: int
     unsupported: dict
+    rigid_joints: tuple[int, ...] = ()
 
 
 class TextureCache:
@@ -62,65 +63,80 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache) -> StaticMod
     textures: list[PreparedTexture] = []
     missing = set()
     keyed: dict = {}
+    def texture_id(texture):
+        if texture is None:
+            return None
+        if texture not in texture_ids:
+            rgba = cache.pixels(texture)
+            if rgba is None:
+                texture_ids[texture] = None
+                missing.add(texture.image)
+            else:
+                texture_ids[texture] = len(textures)
+                textures.append(PreparedTexture(len(textures), texture.usage.width, texture.usage.height, rgba,
+                    WRAP_NAMES[texture.wrap_s & 3], WRAP_NAMES[texture.wrap_t & 3],
+                    texture_bank.decode_mip_levels(texture_bank.table_entry(cache.rom, texture.table, texture.image) or b"", texture.usage)))
+        return texture_ids[texture]
+
     for triangle, (texture, culled) in enumerate(zip(mesh.textures, mesh.culled)):
-        texture_index = None
-        if texture is not None:
-            if texture not in texture_ids:
-                rgba = cache.pixels(texture)
-                if rgba is None:
-                    texture_ids[texture] = None
-                    missing.add(texture.image)
-                else:
-                    texture_ids[texture] = len(textures)
-                    textures.append(PreparedTexture(
-                        len(textures), texture.usage.width, texture.usage.height, rgba,
-                        WRAP_NAMES[texture.wrap_s & 3], WRAP_NAMES[texture.wrap_t & 3]))
-            texture_index = texture_ids[texture]
+        texture_index = texture_id(texture)
+        texture1_index = texture_id(mesh.secondary_textures[triangle]) if mesh.secondary_textures else None
         alpha = min(mesh.colors[3 * triangle + k][3] for k in range(3))
         rgba = textures[texture_index].rgba if texture_index is not None else None
         mode = _alpha_mode(rgba, alpha)
         fallback = (MISSING_TEXTURE_RGBA if texture is not None and texture_index is None
                     else UNTEXTURED_RGBA)
-        keyed.setdefault((texture_index, not culled, mode, fallback), []).append(triangle)
+        keyed.setdefault((texture_index, not culled, mode, fallback, mesh.materials[triangle] if mesh.materials else mesh_decoder.rdp.MaterialState(), texture1_index), []).append(triangle)
 
-    positions, uvs, colors, batches = [], [], [], []
-    for (texture_index, double_sided, mode, fallback), triangles in sorted(
+    positions, uvs, colors, batches, joints, uvs1 = [], [], [], [], [], []
+    for (texture_index, double_sided, mode, fallback, material, texture1_index), triangles in sorted(
             keyed.items(), key=lambda item: (item[0][2] != "OPAQUE", str(item[0]))):
         first = len(positions)
         for triangle in triangles:
             corners = range(3 * triangle, 3 * triangle + 3)
+            joints.extend(mesh.joints[c] if mesh.joints else 0 for c in corners)
             positions.extend(mesh.positions[c] for c in corners)
             uvs.extend(mesh.uvs[c] for c in corners)
+            uvs1.extend(mesh.secondary_uvs[c] if mesh.secondary_uvs else mesh.uvs[c] for c in corners)
             colors.extend(mesh.colors[c] for c in corners)
         batches.append(PreparedBatch(
             first, len(positions) - first, texture_index, double_sided, texture_index is not None,
             fallback, None if texture_index is not None else "untextured", mode,
-            depth_write=mode != "BLEND"))
+            depth_write=mode != "BLEND", material=material, texture1_index=texture1_index))
     if not positions:
         positions = [(0.0, 0.0, 0.0)] * 3
         uvs = [(0.0, 0.0)] * 3
+        uvs1 = uvs.copy()
         colors = [(0.0, 0.0, 0.0, 0.0)] * 3
     minimum = tuple(min(p[axis] for p in positions) for axis in range(3))
     maximum = tuple(max(p[axis] for p in positions) for axis in range(3))
     render = PreparedRenderData(tuple(positions), tuple(uvs), tuple(batches), tuple(textures),
-                                minimum, maximum, tuple(colors))
+                                minimum, maximum, tuple(colors), tuple(uvs1))
     textured = sum(1 for t in mesh.textures if t is not None and texture_ids.get(t) is not None)
     return StaticModel(render, mesh.triangle_count, textured, len(textures), len(missing),
-                       mesh.stats.get("unsupported", {}))
+                       mesh.stats.get("unsupported", {}), tuple(joints))
 
 
-def prop_model(rom: bytes, entry: int, cache: TextureCache) -> StaticModel | None:
+def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None) -> StaticModel | None:
     data = texture_bank.table_entry(rom, 4, entry)
     if not data or len(data) < 0x50:
         return None
-    return render_data(mesh_decoder.decode(data, mesh_decoder.prop_ranges(data), rom=rom), cache)
+    animations = texture_animation.prop_animations(data)
+    overrides = {a.key: (a.table, a.image(frame if tick is None else tick // a.ticks_per_frame)) for a in animations}
+    return render_data(mesh_decoder.decode(data, mesh_decoder.prop_ranges(data), rom=rom, image_overrides=overrides), cache)
 
 
-def map_model(rom: bytes, entry: int, cache: TextureCache) -> StaticModel | None:
+def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None) -> StaticModel | None:
     data = texture_bank.table_entry(rom, 1, entry)
     if not data or len(data) < 0x140 or data[2:4] == b"\x08\x00":
         return None
-    return render_data(mesh_decoder.decode(data, mesh_decoder.map_ranges(data), rom=rom), cache)
+    animations = texture_animation.map_animations(data)
+    groups = {}
+    for animation in animations:
+        sample = frame if tick is None else tick // animation.ticks_per_frame
+        groups.setdefault(animation.group, {})[animation.key] = (animation.image(sample),)
+    return render_data(mesh_decoder.decode(data, mesh_decoder.map_ranges(data, with_chunk=True),
+                       rom=rom, dynamic_groups=groups, dynamic_table=7), cache)
 
 
 def actor_conditional_mask(entry: int) -> int:
@@ -132,7 +148,7 @@ def actor_conditional_mask(entry: int) -> int:
     return -1
 
 
-def actor_model(rom: bytes, entry: int, cache: TextureCache) -> StaticModel | None:
+def actor_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None) -> StaticModel | None:
     data = texture_bank.table_entry(rom, 5, entry)
     if not data:
         return None
@@ -141,7 +157,7 @@ def actor_model(rom: bytes, entry: int, cache: TextureCache) -> StaticModel | No
     except Exception:  # some entries are not regular actor models
         return None
     try:
-        dynamic = rom_model.parse_dynamic_textures(actor)  # eyes/mouths: first frame
+        dynamic = {slot: (frames[frame % len(frames)],) for slot, frames in rom_model.parse_dynamic_textures(actor).items() if frames}
     except Exception:
         dynamic = None
     mesh = mesh_decoder.decode(actor.data, mesh_decoder.actor_ranges(actor), rom=rom,
@@ -203,11 +219,14 @@ def export_glb(model: StaticModel, path, name: str) -> dict:
             "POSITION": add_accessor([render.positions[i] for i in corners], "VEC3", 3, True),
             "COLOR_0": add_accessor([render.colors[i] for i in corners], "VEC4", 4),
         }
-        material = {"name": f"material_{len(materials)}", "doubleSided": batch.double_sided,
+        material = {"extras": {"dk64_rdp_material": batch.material.json(), "material_policy": "glTF approximation; RDP mux retained as metadata"}, "name": f"material_{len(materials)}", "doubleSided": batch.double_sided,
                     "alphaMode": batch.alpha_mode,
                     "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0}}
         if batch.alpha_mode == "MASK":
             material["alphaCutoff"] = 0.5
+        if batch.texture1_index is not None:
+            attributes["TEXCOORD_1"] = add_accessor([render.uvs1[i] for i in corners], "VEC2", 2)
+            material["extras"]["dk64_secondary_texture"] = image_of[batch.texture1_index]
         if batch.texture_index is not None:
             attributes["TEXCOORD_0"] = add_accessor([render.uvs[i] for i in corners], "VEC2", 2)
             material["pbrMetallicRoughness"]["baseColorTexture"] = {"index": image_of[batch.texture_index]}

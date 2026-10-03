@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import texgen
+from . import texgen, rdp
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -416,6 +416,7 @@ class Mesh:
     triangle_texture_uses: list[TextureUse | None] = field(default_factory=list)
     triangle_texgen_modes: list[tuple[bool, bool]] = field(default_factory=list)
     # True when the RDP combiner is shade-only at this triangle (no texture sampled).
+    triangle_materials: list[rdp.MaterialState] = field(default_factory=list)
     triangle_shade_only: list[bool] = field(default_factory=list)
     # True when the RDP Z mode is decal (G_SETOTHERMODE_L ZMODE = 3) at this triangle.
     triangle_z_decal: list[bool] = field(default_factory=list)
@@ -452,6 +453,7 @@ def decode_actor_mesh(actor: Actor, hand_state: int = 0) -> Mesh:
     texture_scale_s = texture_scale_t = 0xFFFF
     texture_enabled = False
     shade_only = False
+    material = rdp.MaterialState()
     z_decal = False
     texture_tile = texture_lod = 0
     texture_filter: int | None = None
@@ -516,7 +518,10 @@ def decode_actor_mesh(actor: Actor, hand_state: int = 0) -> Mesh:
                 texture_enabled = bool(int.from_bytes(command[:4], "big") & 2)
                 texture_scale_s, texture_scale_t = (int.from_bytes(command[4:6], "big"),
                                                     int.from_bytes(command[6:8], "big"))
+            elif op in (0xFA, 0xFB, 0xEA, 0xEB, 0xEC):
+                material = material.command(int.from_bytes(command[:4], "big"), word)
             elif op == 0xE3:  # F3DEX2 G_SETOTHERMODE_H: w0 holds 32-shift-len and len-1.
+                material = material.command(int.from_bytes(command[:4], "big"), word)
                 length = command[3] + 1
                 shift_amount = 32 - command[2] - length
                 if shift_amount <= G_MDSFT_TEXTFILT and shift_amount + length >= G_MDSFT_TEXTFILT + 2:
@@ -527,6 +532,7 @@ def decode_actor_mesh(actor: Actor, hand_state: int = 0) -> Mesh:
                 if shift_amount <= G_MDSFT_ZMODE and shift_amount + length >= G_MDSFT_ZMODE + 2:
                     z_decal = ((word >> G_MDSFT_ZMODE) & 3) == ZMODE_DECAL
             elif op == 0xFC:  # G_SETCOMBINE
+                material = material.command(int.from_bytes(command[:4], "big"), word)
                 shade_only = (int.from_bytes(command[:4], "big") & 0xFFFFFF, word) == G_CC_SHADE_ONLY
             elif op == 0xFD:  # G_SETTIMG; actor loader resolves segment-zero IDs through table 25.
                 w0 = int.from_bytes(command[:4], "big")
@@ -644,6 +650,7 @@ def decode_actor_mesh(actor: Actor, hand_state: int = 0) -> Mesh:
                                          texture_filter, load_dxt == 0,
                                          active_tile in hilite_tiles, image_w, image_h)
                     mesh.triangle_texture_uses.append(use)
+                    mesh.triangle_materials.append(material)
                     mesh.triangle_shade_only.append(shade_only)
                     mesh.triangle_z_decal.append(z_decal)
                     triangle_commands.append(pc)
@@ -872,6 +879,7 @@ def export_textured_gltf(mesh: Mesh, actor: Actor, rom: bytes, out: Path,
     # The third element marks RDP decal Z mode; it only adds a grouping/extras flag.
     texgen_modes = [((False, False) if flat else mode) + (decal,)
                     for mode, flat, decal in zip(texgen_modes, shade_only, z_decal)]
+    texgen_modes = [mode + (mat,) for mode, mat in zip(texgen_modes, mesh.triangle_materials or [rdp.MaterialState()] * len(mesh.triangles))]
     for use, flat in zip(mesh.triangle_texture_uses, shade_only):
         if flat:
             # Combiner (0 - 0) * 0 + SHADE: an untextured, lit surface.
@@ -1010,6 +1018,12 @@ def export_textured_gltf(mesh: Mesh, actor: Actor, rom: bytes, out: Path,
                                       "image_size": [use.sample_width, use.sample_height],
                                       "baked_upper_left_quarter_texels": [use.tile_uls, use.tile_ult],
                                       "texture_filter": use.texture_filter}}
+        extras = dict(extras or {})
+        extras["dk64_rdp_material"] = texgen[3].json()
+        if use is not None:
+            extras["dynamic_slot"] = use.dynamic_slot
+            extras["source_texture_entry"] = use.texture_index
+            extras["odd_lines_swapped"] = use.odd_lines_swapped
         if texgen[2]:
             extras = dict(extras or {})
             extras["dk64_z_mode"] = "decal"

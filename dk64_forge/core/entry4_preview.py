@@ -412,6 +412,8 @@ def validate_experimental_animation_gltf(path: Path) -> dict[str, object]:
         "runtime_faithful": False,
         "timing": "diagnostic/artificial",
     }
+    if extras.get("adjustments_applied") is True and str(extras.get("procedural_hair", "")).startswith("Tiny pendulum diagnostic:"):
+        expected_extras["adjustments_applied"] = True
     if any(extras.get(key) != value for key, value in expected_extras.items()):
         raise ValueError("diagnostic animation metadata is incomplete")
     timing_mapping = extras.get("timing_mapping")

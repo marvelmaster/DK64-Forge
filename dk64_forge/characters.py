@@ -82,13 +82,15 @@ CHARACTERS = {spec.key: spec for spec in (DK, DIDDY, TINY, CHUNKY, LANKY)}
 # Instrument models are separate table-5 entries with the same skeleton (DK64 Randomizer
 # Models.py "... With Instrument"); 806F0C18 gives them the Kong's normal hand mask.
 # DK's bongos are a separate 3-bone actor (table 5 entry 0xA5), not a Kong variant.
+LOW_POLY_ENTRIES = {"dk": 4, "diddy": 2, "lanky": 7, "tiny": 10, "chunky": 14}
+VARIANT_LOW_POLY = "low_poly"
 VARIANT_NORMAL, VARIANT_WEAPON, VARIANT_INSTRUMENT = "normal", "weapon", "instrument"
 WEAPON_MASKS = {"dk": 2, "diddy": 3, "lanky": 2, "tiny": 2, "chunky": 2}
-INSTRUMENT_ENTRIES = {"diddy": 1, "lanky": 6, "tiny": 9, "chunky": 12}
+INSTRUMENT_ENTRIES = {"dk": 3, "diddy": 1, "lanky": 6, "tiny": 9, "chunky": 12}
 # Item names from the game's manual/community usage (labels, COMMUNITY).
 WEAPON_NAMES = {"dk": "Coconut Shooter", "diddy": "Peanut Popguns", "lanky": "Grape Shooter",
                 "tiny": "Feather Bow", "chunky": "Pineapple Launcher"}
-INSTRUMENT_NAMES = {"diddy": "Guitar", "lanky": "Trombone", "tiny": "Saxophone", "chunky": "Triangle"}
+INSTRUMENT_NAMES = {"dk": "Bongos attachment", "diddy": "Guitar", "lanky": "Trombone", "tiny": "Saxophone", "chunky": "Triangle"}
 
 
 def variants_for(spec: CharacterSpec) -> list[tuple[str, str]]:
@@ -96,11 +98,14 @@ def variants_for(spec: CharacterSpec) -> list[tuple[str, str]]:
     rows = [(VARIANT_NORMAL, "Normal"), (VARIANT_WEAPON, f"Weapon drawn ({WEAPON_NAMES[spec.key]})")]
     if spec.key in INSTRUMENT_ENTRIES:
         rows.append((VARIANT_INSTRUMENT, f"With instrument ({INSTRUMENT_NAMES[spec.key]})"))
+    rows.append((VARIANT_LOW_POLY, "Low-poly"))
     return rows
 
 
 def variant_model(spec: CharacterSpec, variant: str) -> tuple[int, int]:
     """(table-5 entry, hand mask) of a character variant."""
+    if variant == VARIANT_LOW_POLY:
+        return LOW_POLY_ENTRIES[spec.key], spec.hand_mask
     if variant == VARIANT_WEAPON:
         return spec.table5_entry, WEAPON_MASKS[spec.key]
     if variant == VARIANT_INSTRUMENT:

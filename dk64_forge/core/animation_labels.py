@@ -116,11 +116,30 @@ CHARACTER_LABELS = {
         0x0116: ("Idle in shops (variant 1)", "LIKELY", "gait tier 2 script playAnimation 0x87 (code_CEAE0.c:1289)"),
         0x0117: ("Idle in shops (variant 2)", "LIKELY", "gait tier 2 script playAnimation 0x87"),
         0x0118: ("Idle in shops (variant 3)", "LIKELY", "gait tier 2 script playAnimation 0x87"),
-        0x0121: ("Gun aim (Busy Barrel Barrage)", "LIKELY", "playAnimation 0x52 with state 0x62 on Busy Barrel Barrage maps (code_CC800.c:414)"),
+        0x0121: ("Gun aim / Rocketbarrel steering", "LIKELY + COMMUNITY", "playAnimation 0x52 in Busy Barrel Barrage; Rocketbarrel state 0x63 selects script 0x7D (code_D78D0.c: func_806D2E9C); clip reused"),
+        0x0122: ("Rocketbarrel forward", "LIKELY + COMMUNITY", "state 0x63 -> script 0x7F, code_D78D0.c: func_806D2E9C"),
+        0x0123: ("Rocketbarrel neutral", "LIKELY + COMMUNITY", "state 0x63 -> script 0x7E when unk1A2 is zero, code_D78D0.c: func_806D2E9C"),
+        0x0124: ("Rocketbarrel steering (opposite)", "LIKELY + COMMUNITY", "state 0x63 -> script 0x80 at negative steering threshold, code_D78D0.c: func_806D2E9C"),
+        0x0125: ("Rocketbarrel transition", "LIKELY + COMMUNITY", "state 0x63 preserves script 0x81; code_D78D0.c: func_806D2E9C"),
         0x00E4: ("Bananaport warp", "LIKELY + COMMUNITY", "Z on pad type 5 (COLLISION_BANANAPORT, Randomizer enum) -> action 0x1C -> state 0x52 (code_EFDC0.c:969)"),
         0x00BA: ("Simian Spring launch", "LIKELY + COMMUNITY", "Z on pad type 2 (COLLISION_SIMIAN_SPRING) -> state 0x1B, playAnimation 0x14 (code_E4090.c:2017-2022)"),
         0x00EC: ("Chimpy Charge", "LIKELY", "B for current_character_index 1 with Diddy's move level > 0 -> state 0x2E at 4x speed, playAnimation 0x48 (code_E4090.c:1662-1668)"),
         0x00ED: ("Chimpy Charge (wall rebound)", "LIKELY", "state 0x2E handler turns 180 degrees at a wall, playAnimation 0x49 (code_D78D0.c:1311)"),
+    },
+    2: {
+        0x0160: ("Orangstand entry", "LIKELY + COMMUNITY", "Lanky B -> action 0x25 -> state 0x3F -> script 0x14F, code_E4090.c:1652 and code_EFDC0.c: func_806EB6D8"),
+        0x0161: ("Orangstand idle", "LIKELY + COMMUNITY", "Orangstand gait tiers 0..2 -> script 0x150, code_CEAE0.c: func_806CE4E4"),
+        0x0162: ("Orangstand run", "LIKELY + COMMUNITY", "Orangstand gait tier 5 -> clip 0x162, code_CEAE0.c: func_806CE4E4"),
+        0x0163: ("Orangstand walk", "LIKELY + COMMUNITY", "Orangstand gait tier 4 -> clip 0x163, code_CEAE0.c: func_806CE4E4"),
+        0x018E: ("Baboon Balloon launch", "LIKELY + COMMUNITY", "pad type 4 -> state 0x6E -> script 0x169, code_E4090.c:2025-2030"),
+        0x018F: ("Baboon Balloon float", "LIKELY + COMMUNITY", "script 0x169 follows launch with clip 0x18F; state 0x6E handler func_806D9FD0"),
+        0x0192: ("Baboon Balloon exit", "LIKELY + COMMUNITY", "state 0x6E progress 3 -> script 0x16A, code_D78D0.c: func_806D9FD0"),
+    },
+    3: {
+        0x01E5: ("Pony Tail Twirl", "LIKELY + COMMUNITY", "action func_806EB2B8 -> Tiny state 0x22 -> script 0x17B; code_EFDC0.c:69-78; state name from Randomizer"),
+    },
+    4: {
+        0x02A7: ("Primate Punch", "LIKELY + COMMUNITY", "Chunky B with move level >1 -> action 0x26 -> func_806ECA74 -> state 0x24 -> script 0x1B2; code_E4090.c:1659, code_EFDC0.c:539"),
     },
 }
 

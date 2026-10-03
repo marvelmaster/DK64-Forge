@@ -8,6 +8,7 @@ users) is dk64_forge.core.texture_bank.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import re
 
@@ -15,7 +16,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget,
+    QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from .core import texture_bank
@@ -52,7 +53,7 @@ def filter_items(items, text: str = "", show: str = SHOW_ALL, sort: str = SORT_N
 
 def safe_file_stem(item) -> str:
     name = re.sub(r"[^A-Za-z0-9]+", "_", item.name).strip("_")
-    return f"T{item.index:04X}_{name}"[:80]
+    return f"T{item.table}_{item.index:04X}_{name}"[:80]
 
 
 class TextureTab(QWidget):
@@ -79,7 +80,7 @@ class TextureTab(QWidget):
         panel = QFrame()
         panel.setMinimumWidth(280)
         layout = QVBoxLayout(panel)
-        heading = QLabel("Texture bank (table 25)")
+        heading = QLabel("Texture banks")
         heading.setStyleSheet("font-weight: bold; font-size: 15px;")
         layout.addWidget(heading)
         self.search_edit = QLineEdit()
@@ -87,6 +88,11 @@ class TextureTab(QWidget):
         self.search_edit.setClearButtonEnabled(True)
         layout.addWidget(self.search_edit)
         form = QFormLayout()
+        self.bank_combo = QComboBox()
+        for table, name in ((25, "25 · Geometry"), (7, "7 · Uncompressed"), (14, "14 · HUD")):
+            self.bank_combo.addItem(name, table)
+        self.bank_combo.currentIndexChanged.connect(self._bank_changed)
+        form.addRow("Bank", self.bank_combo)
         self.show_combo = QComboBox()
         for label in (SHOW_ALL, SHOW_DECODED, SHOW_UNDECODED, SHOW_USED, SHOW_UNUSED, SHOW_PALETTES):
             self.show_combo.addItem(label, label)
@@ -134,6 +140,24 @@ class TextureTab(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.image_label)
         layout.addWidget(scroll, stretch=1)
+        self.manual_check = QCheckBox("Use manual decoding settings")
+        layout.addWidget(self.manual_check)
+        manual = QFormLayout()
+        self.format_combo = QComboBox()
+        for label, fmt, size in (("RGBA16", 0, 2), ("RGBA32", 0, 3), ("IA4", 3, 0), ("IA8", 3, 1), ("IA16", 3, 2), ("I4", 4, 0), ("I8", 4, 1)):
+            self.format_combo.addItem(label, (fmt, size))
+        self.width_spin, self.height_spin = QSpinBox(), QSpinBox()
+        for spin in (self.width_spin, self.height_spin):
+            spin.setRange(1, 2048)
+            spin.setValue(32)
+            spin.valueChanged.connect(self._manual_changed)
+        self.interleave_check = QCheckBox("Undo odd-row word swap")
+        for label, widget in (("Format", self.format_combo), ("Width", self.width_spin), ("Height", self.height_spin), ("Storage", self.interleave_check)):
+            manual.addRow(label, widget)
+        layout.addLayout(manual)
+        self.manual_check.toggled.connect(self._manual_changed)
+        self.format_combo.currentIndexChanged.connect(self._manual_changed)
+        self.interleave_check.toggled.connect(self._manual_changed)
         self.guess_check = QCheckBox("Preview unreferenced data as RGBA16 rows of 32 texels (GUESS)")
         self.export_button = QPushButton("Export PNG...")
         self.export_all_button = QPushButton("Export shown list as PNG files...")
@@ -153,7 +177,7 @@ class TextureTab(QWidget):
         self.loaded = True
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self._items = texture_bank.build_bank_items(self._rom)
+            self._items = texture_bank.build_bank_items(self._rom, table=self.bank_combo.currentData())
         finally:
             QGuiApplication.restoreOverrideCursor()
         used = sum(1 for item in self._items if item.kind == "used")
@@ -163,6 +187,29 @@ class TextureTab(QWidget):
         self._refresh_list()
         if self.list_widget.count():
             self.list_widget.setCurrentRow(0)
+
+    def _bank_changed(self, *_args) -> None:
+        if not self.loaded:
+            return
+        self.loaded = False
+        self._decodable.clear()
+        self._current = None
+        self._current_rgba = None
+        self.image_label.clear()
+        self.export_button.setEnabled(False)
+        self.ensure_loaded()
+
+    def _manual_changed(self, *_args) -> None:
+        if self._current is not None:
+            self.show_item(self._current)
+
+    def _decode_current(self, item):
+        if self.manual_check.isChecked():
+            fmt, size = self.format_combo.currentData()
+            usage = texture_bank.TextureUsage(fmt, size, self.width_spin.value(), self.height_spin.value(),
+                                              self.interleave_check.isChecked(), None, "manual")
+            return texture_bank.decode_item(self._rom, replace(item, usage=usage))
+        return texture_bank.decode_item(self._rom, item, guess=item.kind == "unused" and self.guess_check.isChecked())
 
     def _is_decodable(self, item) -> bool:
         if item.index not in self._decodable:
@@ -212,7 +259,7 @@ class TextureTab(QWidget):
         self._current = item
         self._set_info(item)
         guess = item.kind == "unused" and self.guess_check.isChecked()
-        decoded = texture_bank.decode_item(self._rom, item, guess=guess)
+        decoded = self._decode_current(item)
         if decoded is None:
             self._current_rgba = None
             self.image_label.setPixmap(QPixmap())
@@ -222,6 +269,8 @@ class TextureTab(QWidget):
             self.export_button.setEnabled(False)
             return
         width, height, rgba = decoded
+        if self.manual_check.isChecked():
+            self.format_value.setText(self.format_combo.currentText() + " (manual settings; unverified)")
         self._current_rgba = decoded
         image = QImage(rgba, width, height, width * 4, QImage.Format.Format_RGBA8888).copy()
         zoom = max(1, min(16, 384 // max(width, height)))
@@ -235,7 +284,7 @@ class TextureTab(QWidget):
 
     def _set_info(self, item) -> None:
         self.name_value.setText(item.name)
-        self.id_value.setText(f"table 25, entry {item.index} (0x{item.index:04X})")
+        self.id_value.setText(f"table {item.table}, entry {item.index} (0x{item.index:04X})")
         usage = item.usage
         if usage is not None:
             self.size_value.setText(f"{usage.width} × {usage.height} · {item.byte_size:,} bytes")

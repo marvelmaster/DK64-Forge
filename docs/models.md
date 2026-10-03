@@ -1,73 +1,35 @@
-# The Models and Levels tabs
+# Models and Levels
 
-The **Models** tab shows every actor model (pointer table 5) and every model-two prop (table 4).
-The **Levels** tab shows the map geometry (table 1).
-Every entry is drawn as a static, textured mesh with its vertex colours. **Export static GLB...** writes it as one binary glTF, which opens in Blender.
+**Models** contains **Characters** and **Other models**. Characters provides the five playable Kongs, animation ownership/labels, timing, joint inspection and glTF export. Other models lists table-5 actors and table-4 props. **Levels** lists table-1 map geometry.
 
-| | Entries shown | Triangles (all entries) | Textured |
-|---|---:|---:|---:|
-| Actors (table 5) | 217 | ~55,000 | ~97 % |
-| Props (table 4) | 581 (70 without triangles) | ~33,000 | ~96 % |
-| Maps (table 1) | 136 (85 stubs skipped) | ~165,000+ | ~99 % |
+## Characters
 
-## Using it
+Choose Normal, Weapon, Instrument or Low poly. All five low-poly meshes use the corresponding regular skeleton. DK's instrument variant attaches the separate bongos actor at scale 1.25 and follows his animated root. Other instrument variants use their dedicated models.
 
-- **Search** by name or by number, in decimal or `0x` hex. In the Models tab, the selector limits the list to actors or props.
-- The info panel shows:
-  - where the name comes from;
-  - the triangle and batch counts;
-  - how many images were decoded and what share of the triangles is textured;
-  - display-list commands the static decoder skipped.
-- Magenta surfaces reference a texture that could not be decoded.
-- Grey surfaces are untextured.
+The ownership filter includes Table-13 routes and direct source calls. Special moves now include Tiny Pony Tail Twirl (`0x01E5`), Chunky Primate Punch (`0x02A7`), Lanky Orangstand (`0x0160` entry, `0x0161` idle, `0x0162` run, `0x0163` walk), and Diddy Rocketbarrel (`0x0121` reused gun/steering pose, `0x0122` forward, `0x0123` neutral, `0x0124` opposite, `0x0125` transition). Names remain interpretations of source and visual evidence.
 
-## How the geometry is read
+**Texture frame** cycles each eye/mouth slot modulo its own frame count. It preserves the camera and pose; it does not simulate blink/mouth scripts. The optional Tiny hair checkbox enables a source-derived procedural diagnostic and applies to model-plus-animation and animation-only exports. Idle/walk/run clips contain constant hair channels; the game supplies the additional motion. The diagnostic substitutes head movement for collision anchors and assumes zero world heading/speed, so it is disabled by default.
 
-All three kinds use one F3DEX2 decoder, `dk64_forge/core/mesh_decoder.py`.
+## Other models
 
-- **Vertices:**
-  - Each vertex is 16 bytes: position, S/T, then a normal or an RGBA colour.
-  - When `G_LIGHTING` is clear, the four bytes are the vertex colour. Forge multiplies the texture by this colour, the usual `TEXEL0 × SHADE` combiner.
-  - When lighting is on, Forge uses a fixed key light for the preview. This is not game lighting.
-- **UVs and textures:** these follow the verified Kong rules:
-  - `G_TEXTURE` scale;
-  - tile shift and the tile's upper-left corner;
-  - the bilerp texel centre;
-  - `dxt = 0` interleaving.
-  
-  Textures are decoded with the texture bank.
-- **Props (table 4):**
-  - The header range `0x40..0x48` holds several display lists back to back: a setup list, then the geometry, each ended by `G_ENDDL`.
-  - `G_VTX` segment 8 is the vertex block at `0x48` (DK64 Randomizer `model_port.py`, MIT).
-  - Props that animate parts with `G_MTX` are shown in their rest layout.
-- **Maps (table 1):**
-  - Maps are split into chunks of 52 bytes each, from header offset `0x68`.
-  - Each chunk has up to four display lists, relative to the display-list start at `0x34`.
-  - Each chunk also has its own vertex offset, which becomes `G_VTX` segment 6 inside the vertex data at `0x38`. These layout facts come from dk64_lib (GPL); Forge uses the facts only, no code.
-  - Shared sub-lists are called through `G_DL` segment 7, which is the display-list start. This is VERIFIED structurally: every target starts right after a `G_ENDDL`.
-  - Maps whose entry is a pointer stub are skipped.
-- **Actors (table 5):** these use the same parsing as the Kongs:
-  - vertex segment 3;
-  - `G_MTX` segment 4, which selects the bone rest offset;
-  - the first frame of each dynamic texture slot.
-  
-  Conditional blocks (`G_DL` segment 7/8 branch up to a marker) follow `actor->unk146`. The playable Kongs use their hand mask, so DK gives the same 704 triangles as the verified Kong decoder. Other actors use the generic spawn default of `-1`, which draws every block.
+Search names or decimal/hex IDs; filter actors or props. The panel shows names/evidence, triangles/batches, decoded images and skipped display-list commands. Magenta means unresolved texture data.
 
-## Texture table for props (DIAGNOSTIC ASSUMPTION)
+For an actor, **Find compatible actor clips** scans Table 11 against its skeleton, then offers playback and animated GLB export. Complete interior sampling validates a selected clip. Compatibility alone does not establish ownership: clips, timing, runtime adjustments and endpoints remain diagnostic. **Static rest pose** restores the original geometry; **Export static GLB** always exports that geometry rather than the currently animated pose.
 
-Display lists name images by index.
+For props, **Texture frame** and **Play** select ROM texture-animation frames. Part transforms driven by prop `G_MTX` are still unsupported. Bongos can also be viewed and animated independently here; their actor clip is not automatically matched to DK's instrument clip.
 
-- For maps and actors, the index points into table 25.
-- About 100 prop usages only fit **table 7** (uncompressed textures) exactly, while their table-25 entry is too small. An example is the torch flame: 16×64 RGBA32 frames `0x8C`–`0x97`, which the prop also lists as a texture animation.
+## Levels
 
-Forge therefore uses table 25 when its entry is large enough, and otherwise table 7. The runtime selection logic is not traced yet.
+Map playback selects texture frames using each descriptor's ticks-per-frame, with a diagnostic 30-tick/s preview. Dynamic segments are bound per chunk, as in the game's loader; whole-map visibility is used.
 
-## Limits
+**Show placed props and actor spawn markers** reads setup table 9 and character-spawner table 16. Supported model-two meshes are placed with ROM position, scale and rotation records. Unsupported props and actors appear as markers. The list records type, object ID and coordinates. This does not execute spawn conditions or imply actor-to-model ownership. Placement rotation order remains an unverified rendering convention. Combined static GLB export includes the displayed content overlay. Placed props currently use their initial texture frame.
 
-- Static rest pose only. There is no animation for props or non-Kong actors, and no map texture animation, water scrolling or the like.
-- The colour combiner, fog, lighting and 2-cycle modes are approximated.
-- Maps are shown as their whole geometry. Chunk visibility, map-object placement (model-two setup) and actor spawns are not applied.
-- Names are labels:
-  - actors come from the DK64 Randomizer model list (COMMUNITY);
-  - maps come from the decompilation's map enum;
-  - props use the ASCII name stored in their own header, which several props share (e.g. `torches`).
+## Rendering and data sources
+
+Both decoders preserve ROM colour-combiner, cycle, primitive/environment, key and LOD state. The viewport evaluates one/two-cycle `(A-B)*C+D` RGB/alpha inputs, supports separate texture inputs/UVs for the generic decoder, and reads contiguous RGBA16 ROM mip levels. Lighting uses a fixed directional preview light, including shade-only clothing. Full RSP lighting, TMEM, coverage/blender/dither, fog and bit-exact LOD/rounding remain open. Standard glTF cannot express the complete RDP pipeline; exports keep the mux in metadata and use approximate PBR materials.
+
+Geometry uses F3DEX2 vertex/texture/tile commands. Actor segment 3 points at vertices; segment 4 matrices select bone rest offsets and rigid joints. Prop segment 8 points at header `0x48`. Map chunks are 52-byte records from `0x68`, with vertices on segment 6 and shared sublists on segment 7. Conditional Kong blocks use hand-state masks; other actors use the generic all-blocks mask.
+
+Static images use table 25. Map and prop animation descriptors explicitly identify table-7 frames; this is traced loader behavior, replacing the previous size heuristic. Prop descriptors are at header `0x6C` with `0x84`-byte rows; map descriptors are at `0x48` with `0x7C`-byte rows. Prop blend flags are read but fractional frame blending is not implemented.
+
+Actor labels come from DK64 Randomizer (MIT/community); prop labels are ROM header strings; map names/layout facts come from the decompilation (CC0). Map layout facts from dk64_lib are used without copying GPL code. See [third-party attribution](../licenses/THIRD_PARTY.md) and [status/open work](status.md).
