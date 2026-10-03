@@ -22,7 +22,20 @@ For props, **Texture frame** and **Play** select ROM texture-animation frames. P
 
 Map playback selects texture frames using each descriptor's ticks-per-frame, with a diagnostic 30-tick/s preview. Dynamic segments are bound per chunk, as in the game's loader; whole-map visibility is used.
 
-**Show placed props and actor spawn markers** reads setup table 9 and character-spawner table 16. Supported model-two meshes are placed with ROM position, scale and rotation records. Unsupported props and actors appear as markers. The list records type, object ID and coordinates. This does not execute spawn conditions or imply actor-to-model ownership. Placement rotation order remains an unverified rendering convention. Combined static GLB export includes the displayed content overlay. Placed props currently use their initial texture frame.
+**Show placed props and actor spawn markers** reads setup table 9 and character-spawner table 16. Supported model-two meshes are placed with ROM position, scale and rotation records.
+
+**Actors** use the game's own definition tables, read from the ROM:
+
+| Source | Lookup | Scale |
+|---|---|---|
+| Setup actors | behaviour → `D_global_asm_8074E8B0` | row scale × 0.15 |
+| Character spawners | enemy value → `D_global_asm_8075EB80` | byte × 5 / 255 × 0.15 (`func_global_asm_80726744`) |
+
+Both are drawn at their 12-bit y rotation, in rest pose with their first texture frames. Entries whose definition has no model (controllers, effect spawners) and props without geometry stay markers. Spawn conditions, scripts and animation are not executed. Fungi Forest's night swaps of three enemies are not applied.
+
+**Map geometry is drawn at 1/3 scale**, as the map loader `func_global_asm_80650ECC` does with `guScale(1/3)`, so maps and placements share world units. Map GLB exports are in these world units.
+
+The list records type, object ID and coordinates. Placement rotation order for props remains an unverified rendering convention. Combined static GLB export includes the displayed content overlay. Placed props currently use their initial texture frame.
 
 ## Rendering and data sources
 

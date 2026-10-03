@@ -126,6 +126,9 @@ def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, t
     return render_data(mesh_decoder.decode(data, mesh_decoder.prop_ranges(data), rom=rom, image_overrides=overrides), cache)
 
 
+MAP_SCALE = 1.0 / 3.0  # world units per map vertex unit (guScale in the map loader)
+
+
 def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None) -> StaticModel | None:
     data = texture_bank.table_entry(rom, 1, entry)
     if not data or len(data) < 0x140 or data[2:4] == b"\x08\x00":
@@ -135,8 +138,13 @@ def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, ti
     for animation in animations:
         sample = frame if tick is None else tick // animation.ticks_per_frame
         groups.setdefault(animation.group, {})[animation.key] = (animation.image(sample),)
-    return render_data(mesh_decoder.decode(data, mesh_decoder.map_ranges(data, with_chunk=True),
-                       rom=rom, dynamic_groups=groups, dynamic_table=7), cache)
+    mesh = mesh_decoder.decode(data, mesh_decoder.map_ranges(data, with_chunk=True),
+                               rom=rom, dynamic_groups=groups, dynamic_table=7)
+    # The map loader func_global_asm_80650ECC draws map geometry through
+    # guScale(mtx, 1/3, 1/3, 1/3) (constant at 0x80758C60, read from the ROM's code), so map
+    # vertices are three times world units; setup objects and spawns use world units.
+    mesh.positions = [(x * MAP_SCALE, y * MAP_SCALE, z * MAP_SCALE) for x, y, z in mesh.positions]
+    return render_data(mesh, cache)
 
 
 def actor_conditional_mask(entry: int) -> int:

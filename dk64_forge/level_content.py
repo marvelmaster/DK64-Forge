@@ -1,14 +1,18 @@
 """Setup objects (table 9) and character spawns (table 16), never executed.
 
 Layout facts: DK64 Randomizer build/encoders.py; prop type is the table-4
-index (decomp code_36880.c, 806368F0). Actors requiring game logic are
-shown as labelled spawn markers rather than assigned an arbitrary mesh.
+index (decomp code_36880.c, 806368F0). Setup actors and character spawners
+are drawn with the model the game's own definition tables assign
+(core.actor_tables: model, 0.15-based scale, y rotation); entries without a
+model (controllers, spawners of effects) stay labelled markers. Spawn
+conditions, actor scripts and animation are not executed.
 """
 from dataclasses import dataclass, replace
 import math
 import struct
 import numpy as np
 from .core import texture_bank
+from .core.actor_tables import ANGLE_UNITS, load_actor_tables, setup_actor_scale, spawner_scale
 from .render_data import PreparedRenderData, PreparedBatch
 from . import static_model
 
@@ -22,6 +26,7 @@ class Placement:
     scale: float = 1.
     angles: tuple[float, float, float] = (0., 0., 0.)
     object_id: int | None = None
+    raw_scale: float | None = None  # file value before the game's 0.15-based actor scaling
 
 
 def _count(data, offset, size, stride):
@@ -53,8 +58,11 @@ def parse_setup(data: bytes):
         x, y, z, scale = struct.unpack_from(">4f", row)
         if not all(math.isfinite(v) for v in (x, y, z, scale)):
             raise ValueError("Non-finite actor-spawn transform")
+        y_rotation = struct.unpack_from(">h", row, 0x30)[0]  # func_global_asm_80688FC0 argument
         result.append(Placement("actor", index, int.from_bytes(row[0x32:0x34], "big") + 0x10,
-                                (x, y, z), scale))
+                                (x, y, z), setup_actor_scale(scale),
+                                (0., y_rotation * 360. / ANGLE_UNITS, 0.),
+                                int.from_bytes(row[0x34:0x36], "big"), scale))
     return tuple(result)
 
 
@@ -72,8 +80,9 @@ def parse_spawners(data: bytes):
             raise ValueError("Truncated character spawn")
         row = data[at:at + 0x16]
         position = struct.unpack_from(">3h", row, 4)
-        result.append(Placement("character spawn", index, row[0], position,
-                                row[15] / 100., object_id=row[19]))
+        y_rotation = int.from_bytes(row[2:4], "big")  # Randomizer field "y_rot" (12-bit angle)
+        result.append(Placement("character spawn", index, row[0], position, spawner_scale(row[15]),
+                                (0., y_rotation * 360. / ANGLE_UNITS, 0.), row[19], row[15]))
         at += 0x16 + row[17] * 2
         if at > len(data):
             raise ValueError("Truncated character-spawn extra data")
@@ -131,16 +140,31 @@ def spawn_marker(placement):
                               (x-r,y-r,z-r), (x+r,y+r,z+r))
 
 
+def actor_entry(tables, placement):
+    """Table-5 entry the game spawns for an actor or character-spawn placement, if any."""
+    if placement.kind == "actor":
+        definition = tables.setup_def(placement.type_id)
+    elif placement.kind == "character spawn":
+        definition = tables.enemy_def(placement.type_id)
+    else:
+        return None
+    return definition.table5_entry if definition else None
+
+
 def content_render(rom, map_id, cache, *, tick=0):
     rows = placements(rom, map_id)
-    models, scenes, missing = {}, [], []
+    tables = load_actor_tables(rom)
+    props, actors, scenes, missing = {}, {}, [], []
     for row in rows:
-        if row.kind != "prop":
-            scenes.append(spawn_marker(row))
-            continue
-        if row.type_id not in models:
-            models[row.type_id] = static_model.prop_model(rom, row.type_id, cache, tick=tick)
-        model = models[row.type_id]
+        if row.kind == "prop":
+            if row.type_id not in props:
+                props[row.type_id] = static_model.prop_model(rom, row.type_id, cache, tick=tick)
+            model = props[row.type_id]
+        else:
+            entry = actor_entry(tables, row)
+            if entry is not None and entry not in actors:
+                actors[entry] = static_model.actor_model(rom, entry, cache)
+            model = actors.get(entry)
         if model and model.triangles:
             scenes.append(placed_render(model.render, row))
         else:

@@ -324,7 +324,8 @@ class ModelBrowserTab(QWidget):
             xyz = ", ".join(f"{v:.1f}" for v in row.position)
             self.objects_list.addItem(f"{row.kind} {row.index}: type {row.type_id:03X}, id {row.object_id}, ({xyz})")
         self.viewport.set_attachment_data(self._content)
-        self.status_message.emit(f"{len(rows)} placed objects/spawns; {len(missing)} props without geometry. Spawn markers show positions; game spawn conditions are not executed.")
+        self.status_message.emit(f"{len(rows)} placed objects/spawns; {len(missing)} shown as markers (no model). "
+                                 "Actors use the game's model tables; spawn conditions and scripts are not executed.")
 
     def _texture_frame_changed(self, *_args):
         if self._current is None:
