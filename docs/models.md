@@ -8,7 +8,7 @@ Choose Normal, Weapon, Instrument or Low poly. All five low-poly meshes use the 
 
 The ownership filter includes Table-13 routes and direct source calls. Special moves now include Tiny Pony Tail Twirl (`0x01E5`), Chunky Primate Punch (`0x02A7`), Lanky Orangstand (`0x0160` entry, `0x0161` idle, `0x0162` run, `0x0163` walk), and Diddy Rocketbarrel (`0x0121` reused gun/steering pose, `0x0122` forward, `0x0123` neutral, `0x0124` opposite, `0x0125` transition). Names remain interpretations of source and visual evidence.
 
-**Texture frame** cycles each texture slot modulo its own frame count. It preserves the camera and pose. **Automatic eye blinking** follows the single-player Kong blink routine with repeatable preview randomness; Diddy and Tiny blink both eye slots together. Clothing/colour slots retain the manually selected frame. The **Mouth opening** slider adds a custom 0–35° jaw rotation to the ROM pose, including during playback and in the static view. Zero preserves the authored expression; this adjustment is preview only. The optional Tiny hair checkbox enables a source-derived procedural diagnostic and applies to model-plus-animation and animation-only exports. Idle/walk/run clips contain constant hair channels; the game supplies the additional motion. The diagnostic substitutes head movement for collision anchors and assumes zero world heading/speed, so it is disabled by default.
+**Eye / colour frame** cycles every dynamic texture slot together, modulo its own frame count. These slots include eye frames and clothing/colour ramps, which is why changing this control can affect both eyes and model colour. It preserves the camera and pose. **Automatic eye blinking** follows the single-player Kong blink routine with repeatable preview randomness; Diddy and Tiny blink both eye slots together. Clothing/colour slots retain the manually selected frame. The **Mouth opening** slider adds a custom 0–35° jaw rotation to the ROM pose, including during playback and in the static view. Zero preserves the authored expression; this adjustment is preview only. The optional Tiny hair checkbox enables a source-derived procedural diagnostic and applies to model-plus-animation and animation-only exports. Idle/walk/run clips contain constant hair channels; the game supplies the additional motion. The diagnostic substitutes head movement for collision anchors and assumes zero world heading/speed, so it is disabled by default.
 
 ## Other models
 
@@ -59,3 +59,9 @@ Static images use table 25. Map and prop animation descriptors explicitly identi
 Actor labels come from DK64 Randomizer (MIT/community); prop labels are ROM header strings; map names/layout facts come from the decompilation (CC0). Map layout facts from dk64_lib are used without copying GPL code. See [third-party attribution](../licenses/THIRD_PARTY.md) and [status/open work](status.md).
 
 Further evidence and preview limitations: [Runtime preview](runtime-preview.md).
+
+## Simplified controls
+
+Dropdowns have a search field above them that filters their popup options without changing model or animation IDs. Clear the search to restore all choices. Models load with twice the previous camera distance; mouse-wheel zoom remains available.
+
+The Characters panel hides reference bookmarks and technical animation details (Index, Samples, Domain, Timing, Ownership, Semantic, Prefix, Root, Loop and Context). Viewport Debug retains only View and the overall model geometry count. Source validation and diagnostic metadata remain available in exports and the documentation.

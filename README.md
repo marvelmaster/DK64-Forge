@@ -50,8 +50,9 @@ Nothing else needs to be downloaded or set up.
 - **Timing**: *Game rate* plays 30 adjusted units per second (observed for DK's Entry 4, a
   diagnostic assumption elsewhere), *Technical* plays one sample per second; the speed slider
   (0.1x–5.0x) scales both. **Mark Current as Reference** / **Go to Reference** jump back to a clip.
-- **Viewport Debug** shows the selected joint's parent, current position, rest offset and the
-  geometry it moves; the browser shows the root (bone 0) translation of the current frame.
+- **Viewport Debug** contains the view selector and model geometry count. Technical animation
+  details and reference bookmarks are hidden. Dropdowns have search fields above them.
+  Models initially load at twice the previous camera distance.
 - Start directly with a ROM: `.venv\Scripts\python.exe -m dk64_forge --rom C:\path\to\rom.z64`.
 - **File → Export** writes the model, the current animation only (joints + clip, no mesh), or
   model plus animation as glTF. Keep the `.gltf`, `.bin` and any

@@ -69,7 +69,7 @@ class OrbitCamera:
         target = tuple((minimum[axis] + maximum[axis]) * 0.5 for axis in range(3))
         radius = max(math.dist(target, point) for point in values)
         radius = max(radius, 1.0)
-        return cls(target=target, distance=radius * 2.6, scene_radius=radius)
+        return cls(target=target, distance=radius * 5.2, scene_radius=radius)
 
     @property
     def eye(self) -> Vec3:

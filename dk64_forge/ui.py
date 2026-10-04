@@ -139,6 +139,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.texture_tab, "Textures")
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setCentralWidget(self.tabs)
+        from .dropdown_search import add_dropdown_search
+        add_dropdown_search(self.tabs)
         self._build_export_menu()
         self.rom_status_label = QLabel(f"ROM: {source.path.name}")
         self.rom_status_label.setToolTip(str(source.path))
@@ -239,7 +241,7 @@ class MainWindow(QMainWindow):
 
         self.texture_frame_spin = QSpinBox()
         self.texture_frame_spin.setRange(0, 255)
-        self.texture_frame_spin.setPrefix("Texture slot frame ")
+        self.texture_frame_spin.setPrefix("Eye / colour frame ")
         self.texture_frame_spin.setToolTip("ROM texture-slot frame, wrapped per slot. Includes eye and clothing/colour slots; automatic blinking overrides eyes.")
         self.texture_frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.texture_frame_spin)
@@ -329,7 +331,11 @@ class MainWindow(QMainWindow):
         self.reference_label = QLabel("Reference: none")
         self.reference_label.setWordWrap(True)
         layout.addWidget(self.reference_label)
-        technical = QFormLayout()
+        self.mark_reference_button.hide()
+        self.goto_reference_button.hide()
+        self.reference_label.hide()
+        self.animation_details_panel = QWidget()
+        technical = QFormLayout(self.animation_details_panel)
         self.animation_index_value = QLabel("table 11 / entry 4")
         self.animation_samples_value = QLabel("98 interior poses")
         self.animation_domain_value = QLabel("adjusted time 0..97; endpoint unknown")
@@ -358,7 +364,9 @@ class MainWindow(QMainWindow):
             ("Context", self.animation_context_value),
         ):
             technical.addRow(label, widget)
-        layout.addLayout(technical)
+        layout.addWidget(self.animation_details_panel)
+        self.animation_details_panel.hide()
+        self.timing_status_label.hide()
 
         debug_heading = QLabel("Viewport Debug")
         debug_heading.setStyleSheet("font-weight: bold; font-size: 15px; margin-top: 12px;")
@@ -384,6 +392,10 @@ class MainWindow(QMainWindow):
         debug_form.addRow("Position XYZ", self.joint_position_value)
         debug_form.addRow("Rest local XYZ", self.joint_rest_value)
         debug_form.addRow("Geometry", self.joint_geometry_value)
+        for widget in (self.joint_combo, self.joint_value, self.joint_parent_value,
+                       self.joint_position_value, self.joint_rest_value):
+            debug_form.labelForField(widget).hide()
+            widget.hide()
         layout.addLayout(debug_form)
         self.grid_check = QCheckBox("Show ground grid")
         self.grid_check.setChecked(True)
@@ -391,6 +403,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.grid_check)
         self.reset_view_button = QPushButton("Reset View")
         layout.addWidget(self.reset_view_button)
+        self.grid_check.hide()
+        self.reset_view_button.hide()
         self.export_all_button = QPushButton("Export all animations...")
         self.export_all_button.setToolTip("Export the model plus every clip of the animation list "
                                           "(the 'Only ... clips' filter applies) as glTF files into one folder.")
@@ -398,6 +412,7 @@ class MainWindow(QMainWindow):
         self.limitations_label = QLabel()
         self.limitations_label.setWordWrap(True)
         layout.addWidget(self.limitations_label)
+        self.limitations_label.hide()
         self._apply_character_info()
         layout.addStretch(1)
 
@@ -644,9 +659,8 @@ class MainWindow(QMainWindow):
         local = bind[joint] if parent is None else np.linalg.inv(bind[parent]) @ bind[joint]
         lx, ly, lz = (float(v) for v in local[:3, 3])
         self.joint_rest_value.setText(f"{lx:.3f}, {ly:.3f}, {lz:.3f}")
-        corners = int(np.count_nonzero(self.preview.rigid_joints == joint))
-        self.joint_geometry_value.setText(
-            f"{corners // 3} faces ({corners} render corners)" if corners else "no geometry (pure joint)")
+        corners = len(self.preview.render_data.positions)
+        self.joint_geometry_value.setText(f"{corners // 3} faces ({corners} render corners)")
 
     def _update_root_motion(self) -> None:
         skeleton = self._last_skeleton
