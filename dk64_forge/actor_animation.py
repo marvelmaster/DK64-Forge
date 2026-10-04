@@ -22,6 +22,17 @@ class ActorAnimations:
         count = len(sk.bones)
         spec = CharacterSpec("actor", "Actor", entry, entry, 0, 0, -1, count, 0,
                              model.triangles, 0, 0, 0, 0)
+        from .characters import CHARACTERS, INSTRUMENT_ENTRIES, LOW_POLY_ENTRIES
+        from . import pipeline
+        from .core import anim_code_table
+        kong = next((k for k in CHARACTERS.values() if entry in
+            (k.table5_entry, INSTRUMENT_ENTRIES[k.key], LOW_POLY_ENTRIES[k.key])), None)
+        kong_routes, labels = {}, {}
+        if kong is not None:
+            spec = replace(kong, table5_entry=entry)
+            table = anim_code_table.parse_anim_code(texture_bank.table_entry(rom, 13, 0))
+            kong_routes = anim_code_table.character_clip_routes(table, kong.table13_column)
+            labels = pipeline.dk_animation_names.labels_for(table, kong.table13_column)
         self.source = SimpleNamespace(normalized=rom, actor=actor, skeleton=sk, character=spec)
         self.render = model.render
         self.normals = np.asarray(model.normals)
@@ -41,18 +52,18 @@ class ActorAnimations:
         for index, asset, info in assets:
             if len(asset) < 20 or animation_census._prefix_layout(asset)["descriptor_output_count"] != count * 3:
                 continue
-            row = animation_census.analyze_asset(asset, records, quarter, bone_count=count, field_prefix="actor")
+            row = animation_census.analyze_asset(asset, records, quarter, bone_count=count, field_prefix=spec.census_prefix)
             row.update(info, id=index)
             try:
-                descriptor = descriptor_from_row(row, {}, spec, {})
+                descriptor = descriptor_from_row(row, kong_routes, spec, labels)
             except ValueError:
                 continue
             if index in routes:
                 label, evidence = routes[index]
-                descriptor = replace(descriptor, label=f"Confirmed · {index:04X} · {label}",
+                descriptor = replace(descriptor, label=f"{label} · {index:04X}",
                     ownership="ACTOR_OWNERSHIP_VERIFIED_STATIC_SOURCE", semantic_evidence=evidence)
-            else:
-                descriptor = replace(descriptor, label=f"Compatible only · {index:04X} · owner unknown")
+            elif not descriptor.owned:
+                descriptor = replace(descriptor, label=f"Unassigned animation · {index:04X}")
             self.descriptors.append(descriptor)
         self.descriptors.sort(key=lambda d: (not d.owned, d.table11_id))
         self.samples = ()

@@ -10,7 +10,7 @@
 | Animation names | Table-13 ownership plus direct source-call evidence; Tiny Pony Tail Twirl, Chunky Primate Punch, Lanky Orangstand/Baboon Balloon and Diddy Rocketbarrel routes identified |
 | Character materials | ROM combiner mux, primitive/environment colours, one/two-cycle evaluation, shade-only materials, preview directional lighting, ROM RGBA16 mip levels and separate manual eye/colour selection, mouth opening and automatic Kong blinking |
 | Other models | Static actor/prop viewing and GLB export; compatible non-Kong actor clip discovery, rigid-joint playback and animated GLB export; embedded prop matrix tracks, billboard quads and prop texture playback/crossfades |
-| Levels | Map geometry at the game's 1/3 map scale with texture-frame playback; setup props placed from ROM records; setup actors and character spawns drawn with the models of the game's definition tables (markers only where no model exists); combined static GLB export, chunk selection, procedural effect-7 scrolling surfaces and Fungi night spawns |
+| Levels | Map geometry at the game's 1/3 map scale with texture-frame playback; setup props placed from ROM records; setup actors and character spawns drawn with the models of the game's definition tables (markers only where no model exists); combined static GLB export, procedural effect-7 scrolling surfaces and Fungi night spawns |
 | Textures | Banks 25, 7 and 14; usage-derived decoding, thumbnail grid, usage links, sequence playback, pixel preview and bank-qualified PNG export |
 | Tiny hair | Optional source-derived procedural diagnostic preview/export; disabled by default because world motion and collision-anchor inputs are approximated |
 | Audio | 174 songs with ROM reverb settings, 1,126 SFX, WAV/MP3 export |
@@ -70,7 +70,7 @@ Measure with `experiments/phase1_static_dk/tools/bench_viewport.py` (real OpenGL
 
 ## Viewer expansion (2026-10-04)
 
-Confirmed actor routes and level playback, independent eye/colour controls, current-view and selected-object export, pose-dependent preview lighting, map fog, effect 4, background loading, caches, frustum rejection, texture thumbnails/usage navigation and sequence playback are implemented. Evidence and practical limits: [viewer-expansion.md](viewer-expansion.md).
+Confirmed actor routes and level playback, independent eye/colour controls, current-view and selected-object export, pose-dependent preview lighting, map fog, effect 4, background loading, caches, frustum rejection, texture thumbnails/usage navigation and sequence playback are implemented. Enemy baked colours, independent placement loading and animation-switch playback are corrected; technical model/level controls are hidden. Evidence and practical limits: [viewer-expansion.md](viewer-expansion.md).
 
 ## Remaining work
 
@@ -91,7 +91,7 @@ Only the captured interior interval of DK Entry 4 establishes 30 adjusted units/
 
 ## Validation
 
-Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **156 passing tests**, including the native Windows OpenGL checks, for **283 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
+Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **159 passing tests**, including the native Windows OpenGL checks, for **286 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
 
 Tab details: [models.md](models.md), [textures.md](textures.md), [audio.md](audio.md).
 

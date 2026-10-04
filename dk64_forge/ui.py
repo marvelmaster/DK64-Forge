@@ -141,7 +141,7 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setCentralWidget(self.tabs)
         from .dropdown_search import add_dropdown_search
-        add_dropdown_search((self.animation_combo, self.models_tab.clip_combo, self.levels_tab.chunk_combo))
+        add_dropdown_search((self.animation_combo, self.models_tab.clip_combo))
         self._build_export_menu()
         self.rom_status_label = QLabel(f"ROM: {source.path.name}")
         self.rom_status_label.setToolTip(str(source.path))
@@ -1017,6 +1017,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         for tab in (self.models_tab, self.levels_tab, self.texture_tab):
             tab._loader.cancel()
+            if hasattr(tab, "_content_loader"):
+                tab._content_loader.cancel()
         self.texture_tab._thumbnail_timer.stop()
         self.texture_tab._sequence_timer.stop()
         # Qt close hides the window; its owned timers otherwise keep animating,

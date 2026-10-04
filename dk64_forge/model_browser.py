@@ -115,6 +115,9 @@ class ModelBrowserTab(QWidget):
         from collections import OrderedDict
         self._assets = OrderedDict()
         self._loader = Loader(self)
+        self._content_loader = Loader(self)
+        self._content_loader.progress.connect(self.status_message)
+        self._content_loader.failed.connect(self._content_failed)
         self._loader.progress.connect(self.status_message)
         self._loader.failed.connect(self.status_message)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -157,7 +160,8 @@ class ModelBrowserTab(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
         self.progress_bar.hide()
-        self._loader.busy.connect(self.progress_bar.setVisible)
+        self._loader.busy.connect(self._update_progress)
+        self._content_loader.busy.connect(self._update_progress)
         layout.addWidget(self.progress_bar)
         self.list_widget = QListWidget()
         layout.addWidget(self.list_widget, stretch=1)
@@ -179,6 +183,9 @@ class ModelBrowserTab(QWidget):
         self.load_clips_button = QPushButton("Find compatible actor clips")
         self.load_clips_button.clicked.connect(self._load_actor_clips)
         layout.addWidget(self.load_clips_button)
+        self.animation_heading = QLabel("Animation")
+        self.animation_heading.setVisible(KIND_ACTOR in self._kinds or KIND_PROP in self._kinds)
+        layout.addWidget(self.animation_heading)
         self.clip_combo = QComboBox()
         self.clip_combo.addItem("Static rest pose", None)
         self.clip_combo.currentIndexChanged.connect(self._select_actor_clip)
@@ -187,18 +194,19 @@ class ModelBrowserTab(QWidget):
         self.clip_frame.setRange(0, 0)
         self.clip_frame.valueChanged.connect(self._show_actor_frame)
         layout.addWidget(self.clip_frame)
-        self.clip_export = QPushButton("Export actor + clip GLB...")
+        self.clip_export = QPushButton("Export model + animation GLB...")
         self.clip_export.setEnabled(False)
         self.clip_export.clicked.connect(self._export_actor_clip)
         layout.addWidget(self.clip_export)
-        for widget in (self.load_clips_button, self.clip_combo, self.clip_frame, self.clip_export):
+        for widget in (self.clip_combo, self.clip_frame, self.clip_export):
             widget.setVisible(KIND_ACTOR in self._kinds or KIND_PROP in self._kinds)
+        self.load_clips_button.hide()
         self.prop_speed = QSpinBox()
         self.prop_speed.setRange(1, 300)
         self.prop_speed.setValue(1)
         self.prop_speed.setPrefix("Prop script speed ")
         self.prop_speed.setToolTip("Runtime track multiplier; object scripts choose it in the game. Preview loops the selected track forward.")
-        self.prop_speed.setVisible(KIND_PROP in self._kinds)
+        self.prop_speed.hide()
         self.prop_speed.valueChanged.connect(lambda: self._show_actor_frame(self.clip_frame.value()))
         layout.addWidget(self.prop_speed)
         self.scene_play = QPushButton("Play")
@@ -215,7 +223,7 @@ class ModelBrowserTab(QWidget):
         layout.addWidget(self.night_check)
         self.chunk_combo = QComboBox()
         self.chunk_combo.addItem("All geometry chunks", None)
-        self.chunk_combo.setVisible(KIND_MAP in self._kinds)
+        self.chunk_combo.hide()
         self.chunk_combo.setToolTip("Inspect one ROM geometry chunk. Game portal visibility is not simulated.")
         self.chunk_combo.currentIndexChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.chunk_combo)
@@ -230,6 +238,7 @@ class ModelBrowserTab(QWidget):
         self.frame_spin.setToolTip("Select a ROM texture frame. Each slot wraps independently; Kong blinking is available in Characters; gameplay timing is not inferred for generic actors.")
         self.frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.frame_spin)
+        self.frame_spin.hide()
         self.fog_check = QCheckBox("Map fog (ROM settings)")
         self.fog_check.setChecked(False)
         self.fog_check.setVisible(KIND_MAP in self._kinds)
@@ -270,7 +279,7 @@ class ModelBrowserTab(QWidget):
         if self._actor_animations is None or self._current is None:
             return
         entry, model = self._current
-        target, _ = QFileDialog.getSaveFileName(self, "Export actor and compatible clip", safe_file_stem(entry) + "_animated.glb", "Binary glTF (*.glb)")
+        target, _ = QFileDialog.getSaveFileName(self, "Export model and animation", safe_file_stem(entry) + "_animated.glb", "Binary glTF (*.glb)")
         if not target:
             return
         try:
@@ -289,7 +298,7 @@ class ModelBrowserTab(QWidget):
             self.clip_combo.clear()
             self.clip_combo.addItem("Static rest pose", None)
             for track in rig.tracks if rig else ():
-                self.clip_combo.addItem(f"ROM track {track.index}: {len(track.speeds)} keys, {len(track.rows)} matrices", track.index)
+                self.clip_combo.addItem(f"Animation {track.index + 1}", track.index)
             self.clip_combo.blockSignals(False)
             self.status_message.emit("Embedded prop tracks; script speed and triggering are preview controls.")
             return
@@ -308,6 +317,7 @@ class ModelBrowserTab(QWidget):
             self.clip_combo.addItem("Static rest pose", None)
             for descriptor in self._actor_animations.descriptors:
                 self.clip_combo.addItem(descriptor.label, descriptor.table11_id)
+                self.clip_combo.setItemData(self.clip_combo.count()-1, ("Confirmed for this model. " if descriptor.owned else "Unassigned: skeleton-compatible; use by this model is not confirmed. ") + descriptor.semantic_evidence, Qt.ItemDataRole.ToolTipRole)
             self.clip_combo.blockSignals(False)
             self.status_message.emit(f"{sum(d.owned for d in self._actor_animations.descriptors)} source-confirmed, {sum(not d.owned for d in self._actor_animations.descriptors)} compatible-only clips; preview timing.")
         except Exception as exc:
@@ -318,6 +328,7 @@ class ModelBrowserTab(QWidget):
             QGuiApplication.restoreOverrideCursor()
 
     def _select_actor_clip(self, *_args):
+        resume = self._scene_timer.isActive()
         self._scene_timer.stop()
         self.scene_play.setText("Play")
         self.clip_export.setEnabled(False)
@@ -327,6 +338,9 @@ class ModelBrowserTab(QWidget):
             self.clip_frame.setRange(0, 6000 if index is not None else 0)
             self.clip_frame.setValue(0)
             self._show_actor_frame(0)
+            if resume and index is not None:
+                self._start_scene_playback()
+                self.scene_play.setText("Pause")
             return
         if self._actor_animations is None or self._current is None:
             return
@@ -343,6 +357,9 @@ class ModelBrowserTab(QWidget):
         self.clip_frame.setValue(0)
         self._show_actor_frame(0)
         self.clip_export.setEnabled(True)
+        if resume:
+            self._start_scene_playback()
+            self.scene_play.setText("Pause")
 
     def _show_actor_frame(self, frame):
         if self._current is not None and self._current[0].kind == KIND_PROP:
@@ -444,23 +461,42 @@ class ModelBrowserTab(QWidget):
         actors = ActorPlayback(self._rom, captured, self._content_models) if content else None
         return content, rows, missing, captured, playback, actors
 
+    def _update_progress(self, *_args):
+        self.progress_bar.setVisible(self._loader.pending or self._content_loader.pending)
+
+    def _content_failed(self, error):
+        self.status_message.emit(f"Could not load placed objects: {error}")
+        self.notes_value.setText(f"Placed objects could not load: {error}. Toggle the checkbox to retry.")
+
     def _load_content_async(self):
-        if self._current is None or not self.content_check.isChecked():
-            self._loader.cancel()
+        self._content_loader.cancel()
+        if not self.content_check.isChecked():
             self._level_content_changed()
+            return
+        # A click during map loading records intent; the new map applies it on arrival.
+        if self._loader.pending or self._current is None:
             return
         self.pause()
         entry = self._current[0]
+        if entry.kind != KIND_MAP:
+            return
         night = self.night_check.isChecked()
-        self._loader.submit(lambda progress: self._prepare_content(entry, night, progress),
-            lambda result: self._level_content_changed(prepared=result))
+        def ready(result):
+            if self._current and self._current[0] == entry and self.content_check.isChecked() and self.night_check.isChecked() == night:
+                self._level_content_changed(prepared=result)
+        self._content_loader.submit(lambda progress: self._prepare_content(entry, night, progress), ready)
 
-    def _level_content_changed(self, *_args, prepared=None):
+    def _clear_content(self):
         self._content_playback = None
         self._content = None
         self._actor_playback = None
         self._captured = []
         self.objects_list.clear()
+        if self.viewport is not None:
+            self.viewport.set_attachment_data(None)
+
+    def _level_content_changed(self, *_args, prepared=None):
+        self._clear_content()
         if self.viewport is None or self._current is None:
             return
         self.viewport.set_attachment_data(None)
@@ -543,6 +579,8 @@ class ModelBrowserTab(QWidget):
     def _select_item(self, item, _previous=None) -> None:
         if item is not None:
             entry = item.data(Qt.ItemDataRole.UserRole)
+            self._content_loader.cancel()
+            self._clear_content()
             self.pause()
             self._loader.submit(lambda progress: self._prepare_entry(entry, progress),
                                 lambda result: self.show_entry(entry, prepared=result))
@@ -573,6 +611,8 @@ class ModelBrowserTab(QWidget):
     def show_entry(self, entry: BrowserEntry, *, prepared=None) -> static_model.StaticModel | None:
         if prepared is None:
             self._loader.cancel()
+        self._content_loader.cancel()
+        self._clear_content()
         self._scene_timer.stop()
         self.scene_play.setText("Play")
         self._scene_tick = 0

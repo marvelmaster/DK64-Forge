@@ -76,9 +76,9 @@ def _signed(value: int, bits: int) -> int:
 
 
 class _State:
-    def __init__(self) -> None:
+    def __init__(self, geometry=G_LIGHTING) -> None:
         self.material = rdp.MaterialState()
-        self.geometry = G_LIGHTING
+        self.geometry = geometry
         self.scale = (0xFFFF, 0xFFFF)
         self.texture_on = False
         self.image = None       # (address, fmt, size)
@@ -92,7 +92,7 @@ class _State:
 
 
 def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
-           conditional_mask: int | None = None, dynamic_table: int = 25, image_overrides=None, dynamic_groups=None, matrices=None, max_triangles: int = 400_000) -> StaticMesh:
+           conditional_mask: int | None = None, dynamic_table: int = 25, image_overrides=None, dynamic_groups=None, matrices=None, initial_geometry=G_LIGHTING, max_triangles: int = 400_000) -> StaticMesh:
     """Decode display-list byte ranges into a static, textured triangle list.
 
     ranges: iterable of (start, end, {segment: vertex_base_offset_in_data}).
@@ -118,7 +118,7 @@ def decode(data: bytes, ranges, *, rom: bytes, bone_offsets=None, dynamic=None,
             # console; only the vertices are reloaded from the piece's own block.
             state.cache = [None] * SLOTS
         else:
-            state = _State()
+            state = _State(initial_geometry)
         offset = (0.0, 0.0, 0.0)
         current_bone = 0
         matrix = None

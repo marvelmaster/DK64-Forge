@@ -217,8 +217,10 @@ def actor_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, 
         dynamic = {slot: (frames[frame % len(frames)],) for slot, frames in rom_model.parse_dynamic_textures(actor).items() if frames}
     except Exception:
         dynamic = None
+    # Generic actors carry baked RGBA; display lists explicitly enable lighting
+    # where their vertex bytes instead represent normals (e.g. playable Kongs).
     mesh = mesh_decoder.decode(actor.data, mesh_decoder.actor_ranges(actor), rom=rom,
-                               bone_offsets=mesh_decoder.actor_bone_offsets(actor), dynamic=dynamic,
+                               bone_offsets=mesh_decoder.actor_bone_offsets(actor), dynamic=dynamic, initial_geometry=0,
                                conditional_mask=actor_conditional_mask(entry))
     return render_data(mesh, cache)
 
