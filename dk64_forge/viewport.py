@@ -425,6 +425,9 @@ class ModelViewport(QOpenGLWidget):
         self._uniform_cache: dict = {}
         self._last_material = None
         self._bound_vao = None
+        self._mesh_state = None
+        self._mesh_uniform_values = {}
+        self._mesh_texture_handles = None
         # Optional per-view UV source for RSP-generated (G_TEXTURE_GEN) coordinates.
         self._uv_provider = None
         self._uv_key = None
@@ -850,6 +853,14 @@ class ModelViewport(QOpenGLWidget):
         glUniform1i(self._uniform(program, "second_texture"), 1)
         self._last_material = None
         self._bound_vao = None
+        self._mesh_state = None
+        self._mesh_uniform_values = {}
+        self._mesh_texture_handles = None
+
+    def _mesh_uniform(self, name, setter, *values):
+        if self._mesh_uniform_values.get(name) != values:
+            setter(self._uniform(self._program, name), *values)
+            self._mesh_uniform_values[name] = values
 
     def _paint_mesh(
         self,
@@ -859,25 +870,23 @@ class ModelViewport(QOpenGLWidget):
         textures: dict[int, int],
         batch: PreparedBatch,
     ) -> None:
-        program = self._program
-        u = self._uniform
         if self._bound_vao != vao:
             glBindVertexArray(vao)
             self._bound_vao = vao
-        if batch.double_sided:
-            glDisable(GL_CULL_FACE)
-        else:
-            glEnable(GL_CULL_FACE)
-        if batch.depth_compare:
-            glEnable(GL_DEPTH_TEST)
-            glDepthFunc(GL_LEQUAL if depth_comparison_for_batch(batch) == "LEQUAL" else GL_LESS)
-        else:
-            glDisable(GL_DEPTH_TEST)
-        glDepthMask(GL_TRUE if batch.depth_write else GL_FALSE)
-        if batch.alpha_mode == "BLEND":
-            glEnable(GL_BLEND)
-        else:
-            glDisable(GL_BLEND)
+        state = (batch.double_sided, batch.depth_compare, batch.z_mode, batch.depth_write, batch.alpha_mode == "BLEND")
+        if state != self._mesh_state:
+            previous = self._mesh_state
+            self._mesh_state = state
+            if previous is None or state[0] != previous[0]:
+                (glDisable if batch.double_sided else glEnable)(GL_CULL_FACE)
+            if previous is None or state[1:3] != previous[1:3]:
+                (glEnable if batch.depth_compare else glDisable)(GL_DEPTH_TEST)
+                if batch.depth_compare:
+                    glDepthFunc(GL_LEQUAL if depth_comparison_for_batch(batch) == "LEQUAL" else GL_LESS)
+            if previous is None or state[3] != previous[3]:
+                glDepthMask(GL_TRUE if batch.depth_write else GL_FALSE)
+            if previous is None or state[4] != previous[4]:
+                (glEnable if state[4] else glDisable)(GL_BLEND)
         texture_handle = None if batch.texture_index is None else textures.get(batch.texture_index)
         second_handle = textures.get(batch.texture1_index) if batch.texture1_index is not None else None
         material = batch.material
@@ -886,29 +895,34 @@ class ModelViewport(QOpenGLWidget):
                second_handle is not None, batch.billboard_center)
         if key != self._last_material:
             self._last_material = key
-            glUniform1i(u(program, "is_billboard"), int(batch.billboard_center is not None))
-            glUniform3f(u(program, "billboard_center"), *(batch.billboard_center or (0., 0., 0.)))
-            glUniform1i(u(program, "alpha_mode"), {"OPAQUE": 0, "MASK": 1, "BLEND": 2}[batch.alpha_mode])
-            glUniform1i(u(program, "use_texture"), int(texture_handle is not None))
-            glUniform4f(u(program, "fallback_color"), *batch.fallback_rgba)
-            glUniform1i(u(program, "use_combiner"), int(material.mux is not None))
-            glUniform1i(u(program, "cycle_type"), material.cycle)
-            glUniform4f(u(program, "primitive_color"), *material.primitive)
-            glUniform4f(u(program, "environment_color"), *material.environment)
-            glUniform1f(u(program, "prim_lod"), material.prim_lod)
-            glUniform3f(u(program, "key_center"), *material.key_center)
-            glUniform3f(u(program, "key_scale"), *material.key_scale)
-            glUniform2f(u(program, "convert_k"), *material.convert_k)
-            glUniform1i(u(program, "texture_lod"), int(material.texture_lod))
+            self._mesh_uniform("is_billboard", glUniform1i, int(batch.billboard_center is not None))
+            self._mesh_uniform("billboard_center", glUniform3f, *(batch.billboard_center or (0., 0., 0.)))
+            self._mesh_uniform("alpha_mode", glUniform1i, {"OPAQUE": 0, "MASK": 1, "BLEND": 2}[batch.alpha_mode])
+            self._mesh_uniform("use_texture", glUniform1i, int(texture_handle is not None))
+            self._mesh_uniform("fallback_color", glUniform4f, *batch.fallback_rgba)
+            self._mesh_uniform("use_combiner", glUniform1i, int(material.mux is not None))
+            self._mesh_uniform("cycle_type", glUniform1i, material.cycle)
+            self._mesh_uniform("primitive_color", glUniform4f, *material.primitive)
+            self._mesh_uniform("environment_color", glUniform4f, *material.environment)
+            self._mesh_uniform("prim_lod", glUniform1f, material.prim_lod)
+            self._mesh_uniform("key_center", glUniform3f, *material.key_center)
+            self._mesh_uniform("key_scale", glUniform3f, *material.key_scale)
+            self._mesh_uniform("convert_k", glUniform2f, *material.convert_k)
+            self._mesh_uniform("texture_lod", glUniform1i, int(material.texture_lod))
             if material.mux is not None:
                 for name, values in zip(("rgb0", "alpha0", "rgb1", "alpha1"),
                                         (material.mux[0:4], material.mux[4:8], material.mux[8:12], material.mux[12:16])):
-                    glUniform4i(u(program, name), *values)
-            glUniform1i(u(program, "use_second_texture"), int(second_handle is not None))
-        glActiveTexture(GL_TEXTURE1)
-        glBindTexture(GL_TEXTURE_2D, second_handle or 0)
-        glActiveTexture(GL_TEXTURE0)
-        glBindTexture(GL_TEXTURE_2D, 0 if texture_handle is None else texture_handle)
+                    self._mesh_uniform(name, glUniform4i, *values)
+            self._mesh_uniform("use_second_texture", glUniform1i, int(second_handle is not None))
+        bound = (texture_handle or 0, second_handle or 0)
+        previous = self._mesh_texture_handles
+        if previous is None or bound[1] != previous[1]:
+            glActiveTexture(GL_TEXTURE1)
+            glBindTexture(GL_TEXTURE_2D, bound[1])
+        if previous is None or bound[0] != previous[0]:
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, bound[0])
+        self._mesh_texture_handles = bound
         glDrawArrays(GL_TRIANGLES, batch.first_vertex, batch.vertex_count)
 
     def _paint_skeleton(self, mvp: np.ndarray, *, overlay: bool) -> None:

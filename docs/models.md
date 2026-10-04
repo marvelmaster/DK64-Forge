@@ -67,3 +67,5 @@ Dropdowns have a search field above them that filters their popup options withou
 The Characters panel hides reference bookmarks and technical animation details (Index, Samples, Domain, Timing, Ownership, Semantic, Prefix, Root, Loop and Context). Viewport Debug retains only View and the overall model geometry count. Source validation and diagnostic metadata remain available in exports and the documentation.
 
 Level playback keeps geometry and placement buffers loaded. Animated texture pixels and effect-7 scrolling UVs update independently; repeated placement textures share GPU storage. The performance measurements are recorded in [status.md](status.md).
+
+Other models and Levels request rendering about 60 times per second. Their animation clock remains 30 ticks per second and uses elapsed time, so a faster viewport does not speed up the animation. Repeated graphics state is cached within each mesh pass.

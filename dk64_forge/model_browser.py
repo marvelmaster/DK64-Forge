@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import time
 
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -102,8 +103,11 @@ class ModelBrowserTab(QWidget):
         self._map_playback = None
         self._content_playback = None
         self._scene_timer = QTimer(self)
-        self._scene_timer.setInterval(33)
-        self._scene_timer.timeout.connect(self._advance_scene)
+        self._scene_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._scene_timer.setInterval(16)
+        self._scene_timer.timeout.connect(self._playback_frame)
+        self._playback_time = None
+        self._playback_remainder = 0.0
         self.loaded = False
         splitter = QSplitter(Qt.Orientation.Horizontal)
         side_scroll = QScrollArea()
@@ -335,22 +339,39 @@ class ModelBrowserTab(QWidget):
             self._scene_timer.stop()
             self.scene_play.setText("Play")
         elif self._current is not None:
-            self._scene_timer.start()
+            self._start_scene_playback()
             self.scene_play.setText("Pause")
 
-    def _advance_scene(self):
+    def _start_scene_playback(self):
+        self._playback_time = time.perf_counter()
+        self._playback_remainder = 0.0
+        self._scene_timer.start()
+
+    def _playback_frame(self):
+        now = time.perf_counter()
+        elapsed = 0 if self._playback_time is None else now - self._playback_time
+        self._playback_time = now
+        self._playback_remainder += elapsed * 30.0
+        steps = int(self._playback_remainder)
+        self._playback_remainder -= steps
+        if steps:
+            self._advance_scene(steps)
+        elif self.viewport is not None:
+            self.viewport.update()
+
+    def _advance_scene(self, steps=1):
         if self._current is None:
             self._scene_timer.stop()
             return
         entry, old = self._current
         if entry.kind == KIND_PROP and self.clip_combo.currentData() is not None:
-            self.clip_frame.setValue((self.clip_frame.value() + 1) % (self.clip_frame.maximum() + 1))
+            self.clip_frame.setValue((self.clip_frame.value() + steps) % (self.clip_frame.maximum() + 1))
             return
         if entry.kind == KIND_ACTOR:
             if self._actor_animations is not None and self._actor_animations.samples and self.clip_combo.currentData() is not None:
-                self.clip_frame.setValue((self.clip_frame.value() + 1) % len(self._actor_animations.samples))
+                self.clip_frame.setValue((self.clip_frame.value() + steps) % len(self._actor_animations.samples))
             return
-        self._scene_tick += 1
+        self._scene_tick += steps
         if entry.kind == KIND_MAP:
             from dataclasses import replace
             from .level_playback import map_playback
@@ -533,7 +554,7 @@ class ModelBrowserTab(QWidget):
             self.clip_combo.setCurrentIndex(index)
             if (self._current[0].kind == KIND_PROP or
                     (self._actor_animations is not None and self._actor_animations.samples)):
-                self._scene_timer.start()
+                self._start_scene_playback()
                 self.scene_play.setText("Pause")
                 return
         if self.clip_combo.currentData() is not None:
@@ -543,7 +564,7 @@ class ModelBrowserTab(QWidget):
             from .core import texture_animation
             data = texture_bank.table_entry(self._rom, 4, self._current[0].index)
             if texture_animation.prop_animations(data):
-                self._scene_timer.start()
+                self._start_scene_playback()
                 self.scene_play.setText("Pause")
 
     def _show_render(self, model: static_model.StaticModel) -> None:
