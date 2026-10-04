@@ -237,6 +237,10 @@ def scan_bank(rom: bytes, progress=None, *, table: int = 25) -> dict[int, Textur
         for slot, usage in _segment_usages(data, start, end, f"actor {index}").items():
             for frame in slots.get(slot, ()):
                 entries.setdefault(frame, TextureEntry(frame, None)).usages.append(usage)
+    if table == 14:
+        from .hud_textures import usages
+        for index, layouts in usages(rom).items():
+            entries.setdefault(index, TextureEntry(index, None)).usages.extend(layouts)
     for index in range(entry_count(rom, table)):
         raw = table_entry(rom, table, index)
         if raw is not None:
@@ -387,6 +391,8 @@ def decode_mip_levels(raw: bytes, usage: TextureUsage):
 def user_display_name(user: str, prop_names: dict[int, str | None]) -> str:
     """'actor 3' -> 'DK', 'prop 1' -> 'torches', 'map 7' -> 'Japes'."""
     from .names import ACTOR_MODEL_NAMES, MAP_NAMES
+    if user.startswith("HUD "):
+        return user
     kind, number = user.split()
     index = int(number)
     if kind == "actor":

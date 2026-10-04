@@ -362,12 +362,17 @@ class PreviewScene:
         self.posed_normals = self.bind_normals
         return self.render_data.positions, self._skeleton(self.bind_globals)
 
-    def pose(self, frame: int, *, mouth_joint: int | None = None, mouth_degrees: float = 0):
+    def pose(self, frame: int, *, fraction: float = 0, mouth_joint: int | None = None, mouth_degrees: float = 0):
         """Display one exact exported sample; no guessed fractional evaluation."""
         index = frame - self.safe_first
         if not 0 <= index < len(self.local_samples) or frame > self.safe_last:
             raise ValueError("preview frame is outside the selected safe interval")
-        return self._pose_locals(self.local_samples[index], mouth_joint, mouth_degrees)
+        locals_ = self.local_samples[index]
+        if fraction:
+            from .interpolation import blend_matrix
+            other = self.local_samples[(index+1)%len(self.local_samples)]
+            locals_ = tuple(blend_matrix(a,b,fraction) for a,b in zip(locals_,other))
+        return self._pose_locals(locals_, mouth_joint, mouth_degrees)
 
     def _pose_locals(self, locals_, mouth_joint, mouth_degrees):
         if mouth_joint is not None and mouth_degrees:

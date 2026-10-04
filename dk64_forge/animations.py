@@ -71,6 +71,13 @@ class AnimationDescriptor:
         return 1.0 / DIAGNOSTIC_UNITS_PER_SECOND
 
 
+def descriptor_sort_key(descriptor):
+    """Owned, semantically labelled clips first; retain IDs as a stable tiebreaker."""
+    named = descriptor.semantic_evidence not in ("", "unknown") and not descriptor.label.startswith("Unassigned")
+    name = descriptor.label.partition("—")[2].strip() or descriptor.label.rsplit("·",1)[0].strip()
+    return not descriptor.owned, not named, name.casefold(), descriptor.table11_id
+
+
 def _anim_code(source):
     data, _ = pipeline.static_dk.extract_entry(source.normalized, table_id=13, index=0)
     return pipeline.dk_anim_code_table.parse_anim_code(data)

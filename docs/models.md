@@ -75,3 +75,5 @@ Other models and Levels request rendering about 60 times per second. Their anima
 Ctrl/Shift-select rows in the level object list to export only those objects at the current tick. Models and placement loading run in background jobs. The texture browser links directly to models/maps. Map fog and procedural effect 4 supplement effect 7; offscreen static batches are conservatively culled. See [viewer-expansion.md](viewer-expansion.md) for evidence, tests and remaining rendering limits.
 
 Actor meshes start with baked vertex colours unless their display lists enable lighting explicitly. Treating those RGBA bytes as normals previously made enemies such as Klump appear white. Colours now survive both static and animated previews. Placement loading uses a separate cancellable worker from map loading, so toggling the content checkbox during selection cannot cancel the requested map.
+
+Level picking, filters, optional interpolation, additional enemy routes and animated prop export are described in [level-exploration.md](level-exploration.md).

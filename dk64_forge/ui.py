@@ -281,6 +281,10 @@ class MainWindow(QMainWindow):
         self.dk_only_check.toggled.connect(self._filter_animations)
         layout.addWidget(self.dk_only_check)
         layout.addWidget(self.animation_combo)
+        self.interpolate_check = QCheckBox("Interpolate animation")
+        self.interpolate_check.setToolTip("Optional preview smoothing; saved ROM poses remain unchanged.")
+        self.interpolate_check.toggled.connect(lambda: self._show_frame(self._current_frame))
+        layout.addWidget(self.interpolate_check)
         navigation = QHBoxLayout()
         self.previous_button = QPushButton("Previous")
         self.next_button = QPushButton("Next")
@@ -763,7 +767,8 @@ class MainWindow(QMainWindow):
 
     def _fill_animation_combo(self, dk_only: bool, keep) -> None:
         self.animation_combo.clear()
-        for descriptor in sorted(self.source.animations, key=lambda d: (not d.owned, d.table11_id)):
+        from .animations import descriptor_sort_key
+        for descriptor in sorted(self.source.animations, key=descriptor_sort_key):
             if dk_only and not descriptor.dk_owned:
                 continue
             prefix = "Confirmed · " if descriptor.owned else "Compatible only · "
@@ -933,7 +938,8 @@ class MainWindow(QMainWindow):
         self._current_frame = max(first, min(last, frame))
         mouth_joint = next((bone.index for bone in self.source.skeleton.bones
                             if bone.master_index == 3), None)
-        positions, skeleton = self.preview.pose(self._current_frame,
+        fraction = (self._time_seconds*self._samples_per_second()) % 1 if self.interpolate_check.isChecked() else 0.
+        positions, skeleton = self.preview.pose(self._current_frame, fraction=fraction,
                                                mouth_joint=mouth_joint,
                                                mouth_degrees=self.mouth_slider.value())
         self.viewport.set_scene_data(positions, skeleton)
@@ -943,7 +949,7 @@ class MainWindow(QMainWindow):
             if self._bongo_animation is not None:
                 seconds = (self._current_frame - first) / self._samples_per_second()
                 bongo_frame = min(int(seconds * 30), len(self._bongo_animation.samples) - 1)
-                points = np.asarray(self._bongo_animation.pose(bongo_frame)) * 1.25
+                points = np.asarray(self._bongo_animation.pose(bongo_frame + fraction)) * 1.25
             else:
                 points = np.asarray(self._attachment_bind_positions)
             # Separate actor at the shared actor origin, not DK's pelvis joint.
@@ -1011,7 +1017,7 @@ class MainWindow(QMainWindow):
         count = self.preview.safe_last - self.preview.safe_first + 1
         relative_sample = int(self._time_seconds * self._samples_per_second() + 1e-7) % count
         frame = self.preview.safe_first + relative_sample
-        if frame != self._current_frame:
+        if frame != self._current_frame or self.interpolate_check.isChecked():
             self._show_frame(frame)
 
     def closeEvent(self, event) -> None:

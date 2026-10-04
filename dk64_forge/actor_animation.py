@@ -11,7 +11,7 @@ import json
 import struct
 import numpy as np
 from .characters import CharacterSpec
-from .animations import descriptor_from_row, sample_compatible_animation
+from .animations import descriptor_from_row, sample_compatible_animation, descriptor_sort_key
 from .core import rom_model, skeleton, animation_census, bone_matrix, pose_gltf, texture_bank
 
 
@@ -65,24 +65,40 @@ class ActorAnimations:
             elif not descriptor.owned:
                 descriptor = replace(descriptor, label=f"Unassigned animation · {index:04X}")
             self.descriptors.append(descriptor)
-        self.descriptors.sort(key=lambda d: (not d.owned, d.table11_id))
+        self.descriptors.sort(key=descriptor_sort_key)
         self.samples = ()
+        self._matrix_cache = {}
 
     def select(self, index):
         self.samples = ()
+        self._matrix_cache = {}
         self.selected_id = None
         descriptor = next(d for d in self.descriptors if d.table11_id == index)
         self.samples, _ = sample_compatible_animation(self.source, descriptor)
         self.selected_id = index
         return descriptor
 
+    def matrices(self, frame):
+        from .interpolation import blend_matrix
+        if frame in self._matrix_cache:
+            return self._matrix_cache[frame]
+        first = int(frame) % len(self.samples)
+        fraction = frame-int(frame)
+        a = [np.asarray(pose_gltf.compact_local_to_gltf_matrix(words)).reshape(4,4) for words in self.samples[first].composed_words]
+        if fraction:
+            b = [np.asarray(pose_gltf.compact_local_to_gltf_matrix(words)).reshape(4,4) for words in self.samples[(first+1)%len(self.samples)].composed_words]
+            a = [blend_matrix(x,y,fraction) for x,y in zip(a,b)]
+        if len(self._matrix_cache) >= 4:
+            self._matrix_cache.clear()
+        self._matrix_cache[frame] = a
+        return a
+
     def pose(self, frame):
-        sample = self.samples[frame]
         points = np.asarray(self.render.positions)
         result = points.copy()
-        for joint, words in enumerate(sample.composed_words):
+        for joint, composed in enumerate(self.matrices(frame)):
             mask = self.joints == joint
-            matrix = np.asarray(pose_gltf.compact_local_to_gltf_matrix(words)).reshape(4, 4) @ self.inverse_binds[joint]
+            matrix = composed @ self.inverse_binds[joint]
             result[mask] = points[mask] @ matrix[:3, :3].T + matrix[:3, 3]
         return tuple(tuple(float(v) for v in p) for p in result)
 
@@ -90,8 +106,8 @@ class ActorAnimations:
         if len(self.normals) != len(self.render.positions):
             return None
         result = self.normals.copy()
-        for joint, words in enumerate(self.samples[frame].composed_words):
-            matrix = np.asarray(pose_gltf.compact_local_to_gltf_matrix(words)).reshape(4, 4)[:3, :3]
+        for joint, composed in enumerate(self.matrices(frame)):
+            matrix = composed[:3,:3]
             mask = self.joints == joint
             result[mask] = self.normals[mask] @ np.linalg.pinv(matrix)
         return result

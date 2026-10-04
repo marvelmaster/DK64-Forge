@@ -110,7 +110,7 @@ from OpenGL.GL import (  # noqa: E402
     GL_UNPACK_ALIGNMENT,
 )
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtGui import QMouseEvent, QWheelEvent, QPainter, QColor, QPen
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QLabel
 
@@ -358,6 +358,8 @@ def grid_lines(radius: float, height: float = 0.0):
 
 
 class ModelViewport(QOpenGLWidget):
+    object_clicked = Signal(float, float, object)
+    object_double_clicked = Signal(float, float, object)
     """Render Forge topology with CPU-evaluated positions updated in-place."""
 
     initialization_failed = Signal(str)
@@ -833,6 +835,7 @@ class ModelViewport(QOpenGLWidget):
             return
         try:
             self._paint_scene()
+            self._paint_selection()
         finally:
             self._record_frame(started)
 
@@ -877,6 +880,27 @@ class ModelViewport(QOpenGLWidget):
             glDisable(GL_BLEND)
         if self._view_mode.shows_skeleton:
             self._paint_skeleton(mvp, overlay=self._view_mode is ViewMode.MESH_SKELETON)
+
+    def _paint_selection(self):
+        points = getattr(self, "selection_points", None)
+        if points is None or not len(points):
+            return
+        mvp = np.asarray(self._camera.projection_matrix(max(1,self.width())/max(1,self.height()))) @ self._camera.view_matrix()
+        projected = np.column_stack((points, np.ones(len(points)))) @ mvp.T
+        projected = projected[projected[:,3] > 0]
+        if not len(projected):
+            return
+        xy = projected[:,:2]/projected[:,3,None]
+        xy[:,0] = (xy[:,0]+1)*self.width()/2
+        xy[:,1] = (1-xy[:,1])*self.height()/2
+        lo,hi = xy.min(axis=0), xy.max(axis=0)
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_CULL_FACE)
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor(50,200,255),2))
+        painter.drawRect(int(lo[0])-3,int(lo[1])-3,max(6,int(hi[0]-lo[0])+6),max(6,int(hi[1]-lo[1])+6))
+        painter.drawText(max(4,min(self.width()-160,int(lo[0]))), max(18,min(self.height()-4,int(lo[1])-7)), getattr(self,"selection_name", "Selected object"))
+        painter.end()
 
     def _begin_mesh_pass(self, mvp: np.ndarray) -> None:
         """Frame-wide program state, set once instead of per batch."""
@@ -989,11 +1013,15 @@ class ModelViewport(QOpenGLWidget):
         glEnable(GL_DEPTH_TEST)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._click_origin = event.position().toPoint()
+        self._pointer_dragged = False
         self._last_pointer = event.position().toPoint()
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         current = event.position().toPoint()
+        if hasattr(self, "_click_origin") and (current-self._click_origin).manhattanLength() > 4:
+            self._pointer_dragged = True
         if self._last_pointer is not None:
             delta = current - self._last_pointer
             if event.buttons() & Qt.MouseButton.LeftButton:
@@ -1006,8 +1034,21 @@ class ModelViewport(QOpenGLWidget):
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and not getattr(self, "_pointer_dragged", True):
+            self.object_clicked.emit(event.position().x(), event.position().y(), event.modifiers())
         self._last_pointer = None
         event.accept()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.object_double_clicked.emit(event.position().x(), event.position().y(), event.modifiers())
+        event.accept()
+
+    def focus_points(self, points):
+        framed = OrbitCamera.from_points(points)
+        self._camera.target = framed.target
+        self._camera.distance = max(2.6*framed.scene_radius, self._camera.scene_radius*.03)
+        self.update()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         self._camera.zoom(event.angleDelta().y() / 120.0)

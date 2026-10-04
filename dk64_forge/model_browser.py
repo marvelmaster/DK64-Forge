@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import time
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QSignalBlocker
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QLabel, QLineEdit, QListWidget, QListWidgetItem,
@@ -99,6 +99,8 @@ class ModelBrowserTab(QWidget):
         self._content_models = {}
         self._actor_playback = None
         self._captured = []
+        self._placement_index = None
+        self._visible_objects = set()
         self._actor_animations = None
         self._animation_assets = None
         self._scene_tick = 0
@@ -186,6 +188,11 @@ class ModelBrowserTab(QWidget):
         self.animation_heading = QLabel("Animation")
         self.animation_heading.setVisible(KIND_ACTOR in self._kinds or KIND_PROP in self._kinds)
         layout.addWidget(self.animation_heading)
+        self.unassigned_check = QCheckBox("Show unassigned animations")
+        self.unassigned_check.setChecked(True)
+        self.unassigned_check.setVisible(KIND_ACTOR in self._kinds)
+        self.unassigned_check.toggled.connect(self._filter_clips)
+        layout.addWidget(self.unassigned_check)
         self.clip_combo = QComboBox()
         self.clip_combo.addItem("Static rest pose", None)
         self.clip_combo.currentIndexChanged.connect(self._select_actor_clip)
@@ -212,6 +219,10 @@ class ModelBrowserTab(QWidget):
         self.scene_play = QPushButton("Play")
         self.scene_play.clicked.connect(self._toggle_scene_play)
         layout.addWidget(self.scene_play)
+        self.interpolate_check = QCheckBox("Interpolate animation")
+        self.interpolate_check.setToolTip("Optional preview smoothing between stored poses; not reconstructed game interpolation.")
+        self.interpolate_check.toggled.connect(self._refresh_interpolation)
+        layout.addWidget(self.interpolate_check)
         self.content_check = QCheckBox("Show placed props and actor spawns")
         self.content_check.setVisible(KIND_MAP in self._kinds)
         self.content_check.toggled.connect(self._load_content_async)
@@ -227,9 +238,27 @@ class ModelBrowserTab(QWidget):
         self.chunk_combo.setToolTip("Inspect one ROM geometry chunk. Game portal visibility is not simulated.")
         self.chunk_combo.currentIndexChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.chunk_combo)
+        self.object_search = QLineEdit()
+        self.object_search.setPlaceholderText("Search placed objects by name or ID")
+        self.object_search.setClearButtonEnabled(True)
+        self.object_search.setVisible(KIND_MAP in self._kinds)
+        self.object_search.textChanged.connect(self._filter_objects)
+        layout.addWidget(self.object_search)
+        self.object_kind = QComboBox()
+        for label, value in (("All objects", "all"), ("Actors / enemies", "actors"), ("Props", "props"), ("Technical markers", "markers")):
+            self.object_kind.addItem(label, value)
+        self.object_kind.setVisible(KIND_MAP in self._kinds)
+        self.object_kind.currentIndexChanged.connect(self._filter_objects)
+        layout.addWidget(self.object_kind)
+        self.object_info = QLabel("Click an object in the level; double-click to focus.")
+        self.object_info.setWordWrap(True)
+        self.object_info.setVisible(KIND_MAP in self._kinds)
+        layout.addWidget(self.object_info)
         self.objects_list = QListWidget()
         self.objects_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.objects_list.setMaximumHeight(170)
+        self.objects_list.itemDoubleClicked.connect(self._focus_object)
+        self.objects_list.itemSelectionChanged.connect(self._object_selection_changed)
         self.objects_list.setVisible(KIND_MAP in self._kinds)
         layout.addWidget(self.objects_list)
         self.frame_spin = QSpinBox()
@@ -260,7 +289,7 @@ class ModelBrowserTab(QWidget):
         layout.addWidget(self.export_all_button)
         note = QLabel("Confirmed actor clips are preferred; compatible-only clips remain exploratory. "
                       "ROM colour/alpha combiner; preview lighting. "
-                      "Magenta = texture referenced but not decoded. Texture frames are selectable.")
+                      "Magenta = texture referenced but not decoded. Double-click level objects to focus.")
         note.setWordWrap(True)
         layout.addWidget(note)
         self.search_edit.textChanged.connect(self._refresh_list)
@@ -276,15 +305,22 @@ class ModelBrowserTab(QWidget):
         self.scene_play.setText("Play")
 
     def _export_actor_clip(self):
-        if self._actor_animations is None or self._current is None:
+        if self._current is None:
             return
         entry, model = self._current
+        if entry.kind != KIND_PROP and self._actor_animations is None:
+            return
         target, _ = QFileDialog.getSaveFileName(self, "Export model and animation", safe_file_stem(entry) + "_animated.glb", "Binary glTF (*.glb)")
         if not target:
             return
         try:
-            result = self._actor_animations.export_glb(model, Path(target), entry.name)
-            self.status_message.emit(f"Exported {result['samples']} samples on {result['bones']} bones; preview timing, ownership recorded in GLB.")
+            if entry.kind == KIND_PROP:
+                from .prop_export import export_animation
+                result = export_animation(self._rom, entry.index, self._cache, self.clip_combo.currentData(), Path(target), entry.name)
+                self.status_message.emit(f"Exported {result['samples']} prop animation samples (preview timing).")
+            else:
+                result = self._actor_animations.export_glb(model, Path(target), entry.name)
+                self.status_message.emit(f"Exported {result['samples']} samples on {result['bones']} bones; preview timing, ownership recorded in GLB.")
         except Exception as exc:
             QMessageBox.warning(self, "Actor clip export failed", str(exc))
 
@@ -319,6 +355,7 @@ class ModelBrowserTab(QWidget):
                 self.clip_combo.addItem(descriptor.label, descriptor.table11_id)
                 self.clip_combo.setItemData(self.clip_combo.count()-1, ("Confirmed for this model. " if descriptor.owned else "Unassigned: skeleton-compatible; use by this model is not confirmed. ") + descriptor.semantic_evidence, Qt.ItemDataRole.ToolTipRole)
             self.clip_combo.blockSignals(False)
+            self._filter_clips()
             self.status_message.emit(f"{sum(d.owned for d in self._actor_animations.descriptors)} source-confirmed, {sum(not d.owned for d in self._actor_animations.descriptors)} compatible-only clips; preview timing.")
         except Exception as exc:
             self._actor_animations = None
@@ -333,11 +370,13 @@ class ModelBrowserTab(QWidget):
         self.scene_play.setText("Play")
         self.clip_export.setEnabled(False)
         index = self.clip_combo.currentData()
+        self._playback_remainder = 0.0
         if self._current is not None and self._current[0].kind == KIND_PROP:
             self._scene_tick = 0
             self.clip_frame.setRange(0, 6000 if index is not None else 0)
             self.clip_frame.setValue(0)
             self._show_actor_frame(0)
+            self.clip_export.setEnabled(index is not None)
             if resume and index is not None:
                 self._start_scene_playback()
                 self.scene_play.setText("Pause")
@@ -361,7 +400,7 @@ class ModelBrowserTab(QWidget):
             self._start_scene_playback()
             self.scene_play.setText("Pause")
 
-    def _show_actor_frame(self, frame):
+    def _show_actor_frame(self, frame, fraction=0.0):
         if self._current is not None and self._current[0].kind == KIND_PROP:
             entry, _model = self._current
             model = static_model.prop_model(self._rom, entry.index, self._cache, tick=frame,
@@ -374,9 +413,9 @@ class ModelBrowserTab(QWidget):
             return
         if self._actor_animations is None or not self._actor_animations.samples or self.clip_combo.currentData() is None:
             return
-        points = self._actor_animations.pose(frame)
+        points = self._actor_animations.pose(frame + fraction)
         self.viewport.set_scene_data(points, static_model.marker_skeleton(self._current[1].render))
-        self.viewport.set_vertex_colors(self._actor_animations.colors(frame))
+        self.viewport.set_vertex_colors(self._actor_animations.colors(frame + fraction))
 
     def _toggle_scene_play(self):
         if self._scene_timer.isActive():
@@ -400,7 +439,9 @@ class ModelBrowserTab(QWidget):
         self._playback_remainder -= steps
         if steps:
             self._advance_scene(steps)
-        elif self.viewport is not None:
+        if self.interpolate_check.isChecked() and not steps:
+            self._refresh_interpolation()
+        if self.viewport is not None:
             self.viewport.update()
 
     def _advance_scene(self, steps=1):
@@ -413,7 +454,9 @@ class ModelBrowserTab(QWidget):
             return
         if entry.kind == KIND_ACTOR:
             if self._actor_animations is not None and self._actor_animations.samples and self.clip_combo.currentData() is not None:
-                self.clip_frame.setValue((self.clip_frame.value() + steps) % len(self._actor_animations.samples))
+                with QSignalBlocker(self.clip_frame):
+                    self.clip_frame.setValue((self.clip_frame.value() + steps) % len(self._actor_animations.samples))
+                self._show_actor_frame(self.clip_frame.value(), self._playback_remainder if self.interpolate_check.isChecked() else 0.)
             return
         self._scene_tick += steps
         if entry.kind == KIND_MAP:
@@ -428,9 +471,10 @@ class ModelBrowserTab(QWidget):
             self._current = entry, replace(old, render=render)
             if self._content_playback is not None and self.content_check.isChecked():
                 self._content = self._content_playback.render(self._scene_tick)
+                self._content_texture_render = self._content
                 if self._actor_playback is not None:
-                    self._content = self._actor_playback.render(self._content, self._scene_tick)
-                self.viewport.set_dynamic_render(self._content, attachment=True)
+                    self._content = self._actor_playback.render(self._content, self._scene_tick + (self._playback_remainder if self.interpolate_check.isChecked() else 0.))
+                self._display_content()
             return
         model = LOADERS[entry.kind](self._rom, entry.index, self._cache, tick=self._scene_tick,
                                           **({"chunks": None if self.chunk_combo.currentData() is None else {self.chunk_combo.currentData()}} if entry.kind == KIND_MAP else {}))
@@ -491,6 +535,8 @@ class ModelBrowserTab(QWidget):
         self._content = None
         self._actor_playback = None
         self._captured = []
+        self._placement_index = None
+        self._visible_objects = set()
         self.objects_list.clear()
         if self.viewport is not None:
             self.viewport.set_attachment_data(None)
@@ -514,12 +560,21 @@ class ModelBrowserTab(QWidget):
             return
         finally:
             QGuiApplication.restoreOverrideCursor()
+        from .level_selection import PlacementIndex, placement_name
+        self._content_texture_render = self._content
+        self._placement_index = PlacementIndex(self._captured)
+        self._object_rows = { (row.kind, row.index): row for row in rows }
+        tables = level_content.load_actor_tables(self._rom)
+        markers = {(row.kind, row.index) for row in missing}
         for row in rows:
-            xyz = ", ".join(f"{v:.1f}" for v in row.position)
-            item = QListWidgetItem(f"{row.kind} {row.index}: type {row.type_id:03X}, id {row.object_id}, ({xyz})")
-            item.setData(Qt.ItemDataRole.UserRole, (row.kind, row.index))
+            key = row.kind, row.index
+            name = placement_name(self._rom, tables, row)
+            item = QListWidgetItem(f"{name} · {row.kind} {row.index} · ID {row.object_id}")
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            item.setData(Qt.ItemDataRole.UserRole+1, "markers" if key in markers else "props" if row.kind == "prop" else "actors")
+            item.setToolTip(f"{name}: position {row.position}, type {row.type_id:03X}")
             self.objects_list.addItem(item)
-        self.viewport.set_attachment_data(self._content)
+        self._filter_objects()
         animated = len(self._actor_playback.instances) if self._actor_playback else 0
         self.status_message.emit(f"{len(rows)} objects/spawns; {animated} with confirmed clips; {len(missing)} markers. "
                                  "Actors use the game's model tables; spawn conditions and scripts are not executed.")
@@ -630,6 +685,7 @@ class ModelBrowserTab(QWidget):
         self.chunk_combo.blockSignals(False)
         self.night_check.setEnabled(entry.kind == KIND_MAP and entry.index == 48)
         self._actor_animations = None
+        self.clip_combo.entry_visible = lambda row: True
         self.clip_combo.blockSignals(True)
         self.clip_combo.clear()
         self.clip_combo.addItem("Static rest pose", None)
@@ -693,6 +749,8 @@ class ModelBrowserTab(QWidget):
             return
         self._load_actor_clips()
         for index in range(1, self.clip_combo.count()):
+            if self.clip_combo.view().isRowHidden(index):
+                continue
             self.clip_combo.setCurrentIndex(index)
             if (self._current[0].kind == KIND_PROP or
                     (self._actor_animations is not None and self._actor_animations.samples)):
@@ -724,6 +782,9 @@ class ModelBrowserTab(QWidget):
             from .viewport import ModelViewport
             self.viewport = ModelViewport(model.render, skeleton)
             self.viewport.set_view_mode(ViewMode.MESH)
+            if KIND_MAP in self._kinds:
+                self.viewport.object_clicked.connect(self._pick_object)
+                self.viewport.object_double_clicked.connect(self._pick_focus_object)
             self._placeholder.hide()
             self._view_layout.addWidget(self.viewport)
         else:
@@ -786,13 +847,10 @@ class ModelBrowserTab(QWidget):
         if not target:
             return
         from dataclasses import replace
-        from .level_content import merge_render
-        from .level_actors import ActorPlayback
-        captured = [(row, scene) for row, scene in self._captured if (row.kind, row.index) in selected]
-        render = merge_render([scene for row, scene in captured])
-        from .level_playback import content_playback
-        render = content_playback(render, self._content_models, self._cache).render(self._scene_tick)
-        render = ActorPlayback(self._rom, captured, self._content_models).render(render, self._scene_tick)
+        render = self._placement_index.subset(self._content, selected & self._visible_objects)
+        if render is None:
+            self.status_message.emit("The selected objects are hidden by the current filter.")
+            return
         from .snapshot import freeze_billboards
         render = freeze_billboards(render, self.viewport._camera)
         model = replace(self._current[1], render=render, triangles=sum(b.face_count for b in render.batches))
@@ -801,3 +859,98 @@ class ModelBrowserTab(QWidget):
             self.status_message.emit(f"Exported {len(selected)} selected objects")
         except Exception as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
+
+    def _filter_clips(self, *_args):
+        if self._actor_animations is None:
+            return
+        owned = {d.table11_id for d in self._actor_animations.descriptors if d.owned}
+        self.clip_combo.entry_visible = lambda row: row == 0 or self.unassigned_check.isChecked() or self.clip_combo.itemData(row) in owned
+        for row in range(1, self.clip_combo.count()):
+            hidden = not self.unassigned_check.isChecked() and self.clip_combo.itemData(row) not in owned
+            self.clip_combo.view().setRowHidden(row, hidden)
+        if hasattr(self.clip_combo, "refresh_search"):
+            self.clip_combo.refresh_search()
+        current = self.clip_combo.currentData()
+        if current is not None and current not in owned and not self.unassigned_check.isChecked():
+            self.clip_combo.setCurrentIndex(next((r for r in range(1, self.clip_combo.count()) if self.clip_combo.itemData(r) in owned), 0))
+
+    def _refresh_interpolation(self, *_args):
+        if self._current is None:
+            return
+        fraction = self._playback_remainder if self.interpolate_check.isChecked() else 0.
+        if self._current[0].kind == KIND_ACTOR:
+            self._show_actor_frame(self.clip_frame.value(), fraction)
+        elif self._current[0].kind == KIND_MAP and self._content_playback is not None:
+            self._content = self._content_texture_render
+            if self._actor_playback is not None:
+                self._content = self._actor_playback.render(self._content, self._scene_tick + fraction)
+            self._display_content()
+
+    def _filter_objects(self, *_args):
+        visible = set()
+        needle = self.object_search.text().strip().lower()
+        category = self.object_kind.currentData()
+        for index in range(self.objects_list.count()):
+            item = self.objects_list.item(index)
+            show = (not needle or needle in item.text().lower()) and (category == "all" or category == item.data(Qt.ItemDataRole.UserRole+1))
+            item.setHidden(not show)
+            if show:
+                visible.add(item.data(Qt.ItemDataRole.UserRole))
+            else:
+                item.setSelected(False)
+        self._visible_objects = visible
+        self._display_content()
+        self._object_selection_changed()
+
+    def _display_content(self):
+        if self.viewport is None or self._placement_index is None or self._content is None:
+            return
+        render = self._placement_index.subset(self._content, self._visible_objects)
+        previous = self.viewport._attachment_data
+        if render is not None and previous is not None and len(render.positions) == len(previous.positions) and render.batches == previous.batches:
+            self.viewport.set_dynamic_render(render, attachment=True)
+        else:
+            self.viewport.set_attachment_data(render)
+        self._object_selection_changed()
+
+    def _pick_object(self, x, y, modifiers):
+        if self._placement_index is None or self._content is None:
+            return
+        key = self._placement_index.pick(self._content, self.viewport._camera, x, y,
+            max(1,self.viewport.width()), max(1,self.viewport.height()), self._visible_objects, self.viewport._data)
+        multi = bool(modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier))
+        if not multi:
+            self.objects_list.clearSelection()
+        for index in range(self.objects_list.count()):
+            item = self.objects_list.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == key:
+                item.setSelected(not item.isSelected() if multi else True)
+                self.objects_list.scrollToItem(item)
+                break
+        self._object_selection_changed()
+
+    def _pick_focus_object(self, x, y, modifiers):
+        self._pick_object(x, y, Qt.KeyboardModifier.NoModifier)
+        items = self.objects_list.selectedItems()
+        if items:
+            self._focus_object(items[0])
+
+    def _focus_object(self, item):
+        key = item.data(Qt.ItemDataRole.UserRole)
+        if self._placement_index is not None and key in self._visible_objects:
+            import numpy as np
+            self.viewport.focus_points(np.asarray(self._content.positions)[self._placement_index.indices[key]])
+
+    def _object_selection_changed(self):
+        items = [i for i in self.objects_list.selectedItems() if not i.isHidden()]
+        if not items or self._placement_index is None or self._content is None:
+            self.object_info.setText("Click an object in the level; double-click to focus.")
+            if self.viewport is not None:
+                self.viewport.selection_points = None
+                self.viewport.update()
+            return
+        import numpy as np
+        self.object_info.setText(items[0].text() if len(items)==1 else f"{len(items)} objects selected")
+        self.viewport.selection_name = self.object_info.text()
+        self.viewport.selection_points = np.concatenate([np.asarray(self._content.positions)[self._placement_index.indices[i.data(Qt.ItemDataRole.UserRole)]] for i in items])
+        self.viewport.update()

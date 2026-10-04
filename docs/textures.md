@@ -6,7 +6,7 @@ The **Textures** tab browses three banks, with search, usage filters, pixel prev
 |---|---:|---|
 | 25 — Geometry | 6,011 | Display-list usages and actor dynamic slots |
 | 7 — Uncompressed | 993 | Map/prop animation descriptors and associated draw state |
-| 14 — HUD | 167 | HUD draw usages are not yet traced; unknown entries remain undecoded |
+| 14 — HUD | 167 | 44 source-based decodes (43 font files + overlay); other entries remain undecoded |
 
 The ROM stores raw texels without names or format headers. Unknown data cannot be decoded reliably from its byte length alone.
 
@@ -18,7 +18,7 @@ The format, width, height, odd-row-swap and unreferenced-preview controls are hi
 
 **Export PNG** saves the current selected decode at its original resolution. **Export shown list as PNG files** exports known usage-derived decodes; it does not apply one manual layout to the whole bank. Filenames include the bank, for example `T25_0E64_DK_14_32_32.png`, to avoid collisions.
 
-Animation frame selection lives in the Characters and Other models/Levels panels. A frame in this browser is a separate bank entry, linked through its recorded users.
+Character eye/colour selection lives in Characters; model/level texture frames advance during playback. A frame in this browser is a separate bank entry, linked through its recorded users.
 
 ## Preview filtering
 
@@ -40,10 +40,12 @@ Current scan: bank 25 has 3,947 used entries and 4,689 decodable entries includi
 
 Names derive from the first actor/prop/map user and size; actor names are community labels from DK64 Randomizer, map names come from the decompilation, and prop names come from ROM headers. Treat these as labels rather than official texture names.
 
-The Kong body texture `0xE64` remains pixel-identical to the reference decoder. I/IA previews are grey with alpha. RGBA32 odd-row swapping is not applied. Undecodable CI usages, exact TMEM/interleaving behavior, unused formats, HUD palettes and gameplay expression scripts remain open; see [status](status.md).
+The Kong body texture `0xE64` remains pixel-identical to the reference decoder. I/IA previews are grey with alpha. RGBA32 odd-row swapping is not applied. Undecodable CI usages, exact TMEM/interleaving behavior, unused formats, remaining HUD layouts/palettes and gameplay expression scripts remain open; see [status](status.md).
 
 ## Thumbnail and sequence browser
 
 **Thumbnail grid** switches between thumbnails and the named list. Icons load in short batches so scrolling remains responsive; bank scans run in the background and are cached. Double-click a usage row under the preview to open its actor, prop or map.
 
 When a ROM descriptor assigns a texture to a sequence, choose that sequence, click a frame in the strip or use **Play texture sequence**. IDs need not be consecutive. Actor-slot playback is a manual preview; map/prop playback uses descriptor timing at 30 ticks/s. The strip shows discrete frames. Unknown formats remain undecoded. See [viewer-expansion.md](viewer-expansion.md).
+
+Table 14 now provides 44 automatic font/overlay decodes. File ranges are read from the ROM font table; formats and atlas dimensions follow actual HUD draw commands. The remaining 123 files are still unknown. Evidence: [level-exploration.md](level-exploration.md).

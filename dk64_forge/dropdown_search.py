@@ -32,8 +32,9 @@ def add_dropdown_search(combos, minimum_items=10):
                 search.clear()
             needle = search.text().strip().casefold()
             for row in range(combo.count()):
-                combo.view().setRowHidden(row, needle not in combo.itemText(row).casefold())
+                combo.view().setRowHidden(row, needle not in combo.itemText(row).casefold() or not getattr(combo, "entry_visible", lambda r: True)(row))
 
+        combo.refresh_search = refresh
         search.textChanged.connect(refresh)
         combo.model().rowsInserted.connect(refresh)
         combo.model().rowsRemoved.connect(refresh)

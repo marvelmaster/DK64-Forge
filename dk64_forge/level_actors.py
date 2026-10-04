@@ -59,7 +59,9 @@ class ActorPlayback:
             self._base = (np.asarray(render.positions, dtype=np.float32), np.asarray(render.colors, dtype=np.float32))
         positions, colors = (a.copy() for a in self._base)
         for indices, poses, shades in self.cycles:
-            positions[indices] = poses[tick % len(poses)]
-            colors[indices] = shades[tick % len(shades)]
+            first = int(tick)%len(poses)
+            fraction = tick-int(tick)
+            positions[indices] = poses[first] if not fraction else poses[first] + (poses[(first+1)%len(poses)]-poses[first])*fraction
+            colors[indices] = shades[first] if not fraction else shades[first] + (shades[(first+1)%len(shades)]-shades[first])*fraction
         positions.flags.writeable = colors.flags.writeable = False
         return replace(render, positions=positions, colors=colors)

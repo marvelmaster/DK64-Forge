@@ -348,7 +348,7 @@ class TextureTab(QWidget):
         self._set_info(item)
         self.usage_list.clear()
         for reference in item.references:
-            row = QListWidgetItem(f"Open {reference}")
+            row = QListWidgetItem(reference if reference.startswith("HUD ") else f"Open {reference}")
             row.setData(Qt.ItemDataRole.UserRole, reference)
             self.usage_list.addItem(row)
         guess = item.kind == "unused" and self.guess_check.isChecked()
@@ -400,7 +400,10 @@ class TextureTab(QWidget):
             self._thumbnail_row += 1
 
     def _open_usage(self, item):
-        kind, index = item.data(Qt.ItemDataRole.UserRole).split()
+        user = item.data(Qt.ItemDataRole.UserRole)
+        if user.startswith("HUD "):
+            return
+        kind, index = user.split()
         self.open_usage.emit(kind, int(index))
 
     def _set_sequences(self, item):
