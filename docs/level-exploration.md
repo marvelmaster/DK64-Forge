@@ -32,7 +32,7 @@ Select an embedded prop animation in Other models and use **Export model + anima
 
 ## HUD texture decoding
 
-Table 14 now decodes 44 entries: 43 font files plus overlay 0x5F. The font file ranges come from 80754A34 in the ROM, and layouts from 806FBEF0's tile/load commands (code_100180.c). Overlay 0x5F is I4 64x64, loaded by 80703CF8. Font formats include IA4, IA8, I4 and RGBA16; layouts are not guessed from file lengths. Glyph height is distinct from atlas height. The remaining 123 entries need further draw-use evidence. Known HUD images support thumbnails, zoom and PNG export; their usage rows describe HUD draw routines instead of linking to a model.
+The initial level-exploration update decoded 44 table-14 entries: 43 font files plus overlay 0x5F. Current coverage is 103/167; see [animation-workspace.md](animation-workspace.md). The font file ranges come from 80754A34 in the ROM, and layouts from 806FBEF0's tile/load commands (code_100180.c). Overlay 0x5F is I4 64x64, loaded by 80703CF8. Font formats include IA4, IA8, I4 and RGBA16; layouts are not guessed from file lengths. Glyph height is distinct from atlas height. The remaining 64 entries need usable draw-layout evidence. Known HUD images support thumbnails, zoom and PNG export; their usage rows describe HUD draw routines instead of linking to a model.
 
 ## Validation
 
@@ -48,7 +48,7 @@ Eye updates upload textures only, retaining current positions, UVs and vertex sh
 
 The expanded catalog records 91 distinct constant animation calls for 42 exact models. Actor/model links come from ROM setup/enemy definitions and constant spawnActor calls. Dispatch handlers are read from 8074C0A0. Direct C calls on gCurrentActorPointer are checked against their ROM MIPS call targets/constants; opaque handlers are accepted only when the literal clip/script argument and the current-actor pointer are tracked. Movement initializer triplets use 8072B79C. Call-site evidence is retained in actor_route_catalog.py and animation tooltips. The catalog resolves 501 known clip names/contexts together with existing Kong labels. Labels from another actor do not establish ownership for the current model.
 
-A complete sample audit validated 98 model/clip pairs, filtered 18 incompatible routes, and found four unsupported skeleton/mesh structures (Toy Monster 0x27, K. Lumsy 0x44, Beanstalk 0x47 and Bananaporter Zipper 0x97). Source names may describe an action/script context rather than a precise movement; the ROM does not provide official clip names. Unknown names and additional model ownership still require source tracing or visual review. They remain explicitly unassigned. Level autoplay continues using the curated movement subset rather than arbitrary attack/defeat scripts.
+Before the irregular-skeleton update, a complete sample audit validated 98 model/clip pairs, filtered 18 incompatible routes, and found four unsupported skeleton/mesh structures (Toy Monster 0x27, K. Lumsy 0x44, Beanstalk 0x47 and Bananaporter Zipper 0x97). Source names may describe an action/script context rather than a precise movement; the ROM does not provide official clip names. Unknown names and additional model ownership still require source tracing or visual review. They remain explicitly unassigned. Level autoplay continues using the curated movement subset rather than arbitrary attack/defeat scripts.
 
 After the eye/search/catalog changes: 170 application tests and 127 reference tests pass (297 total). Native live-search and Kosha clip-list captures were inspected.
 

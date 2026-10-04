@@ -134,8 +134,9 @@ ownership; embedded prop matrix tracks and billboard quads are supported. Eye/co
 scripts are not simulated. Tiny has an optional source-derived hair diagnostic with approximate
 world/anchor inputs. Most animation timing uses a diagnostic 30 units/s rate, and ordinary runtime
 adjustments/world placement remain omitted. View-dependent highlight exports use a fixed camera.
-Level actors use their assigned rest-pose meshes; missing models and unsupported props use markers.
-Fungi night substitutions and individual chunk inspection are available; general spawn simulation and game portal visibility remain open.
+Level actors use their assigned meshes; curated source-confirmed enemies animate during playback.
+Missing models and unsupported props use markers.
+Fungi night substitutions are available; all geometry chunks are displayed, with the technical chunk selector hidden; general spawn simulation and game portal visibility remain open.
 Songs omit chorus and mid-note pitch bends; SFX use their samples' own pitch and volume.
 
 ## Legal and license

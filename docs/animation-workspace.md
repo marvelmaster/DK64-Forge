@@ -74,3 +74,14 @@ round trips for models, poses, level selection/ticks/cameras and texture filters
 All four irregular skeletons are sampled and exported; Toy Monster is also exercised
 through the actual browser. Native OpenGL comparison/skeleton/HUD captures were
 inspected. Research tests and ROM-derived captures stay in ignored local folders.
+
+Validation on 2026-10-04: the complete application suite passed 175 tests at its
+five-workspace-test checkpoint. The expanded workspace suite then passed all
+eight tests, bringing current coverage to 178 application tests; the native Qt
+suite independently passed 50 tests. The reference suite passed 127 tests
+(305 application/reference tests in total). Focused final checks passed for
+skeleton-only comparisons and library filtering. An integration smoke check
+verified automatic session save/restore and persistence of the remember option.
+The source-route audit sampled 105 model/clip pairs, filtered 22 incompatible
+routes and reported no sampling failures. These are local viewer/export checks;
+no fresh emulator comparison established runtime fidelity.

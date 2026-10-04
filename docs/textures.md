@@ -6,7 +6,7 @@ The **Textures** tab browses three banks, with search, usage filters, pixel prev
 |---|---:|---|
 | 25 — Geometry | 6,011 | Display-list usages and actor dynamic slots |
 | 7 — Uncompressed | 993 | Map/prop animation descriptors and associated draw state |
-| 14 — HUD | 167 | 44 source-based decodes (43 font files + overlay); other entries remain undecoded |
+| 14 — HUD | 167 | 103 source-based decodes; 64 entries lack usable draw-layout evidence |
 
 The ROM stores raw texels without names or format headers. Unknown data cannot be decoded reliably from its byte length alone.
 
@@ -46,8 +46,6 @@ The Kong body texture `0xE64` remains pixel-identical to the reference decoder. 
 
 **Thumbnail grid** switches between thumbnails and the named list. Icons load in short batches so scrolling remains responsive; bank scans run in the background and are cached. Double-click a usage row under the preview to open its actor, prop or map.
 
-When a ROM descriptor assigns a texture to a sequence, choose that sequence, click a frame in the strip or use **Play texture sequence**. IDs need not be consecutive. Actor-slot playback is a manual preview; map/prop playback uses descriptor timing at 30 ticks/s. The strip shows discrete frames. Unknown formats remain undecoded. See [viewer-expansion.md](viewer-expansion.md).
-
-Table 14 now provides 44 automatic font/overlay decodes. File ranges are read from the ROM font table; formats and atlas dimensions follow actual HUD draw commands. The remaining 123 files are still unknown. Evidence: [level-exploration.md](level-exploration.md).
+When a ROM descriptor or a bounded HUD draw routine assigns a texture to a sequence, choose that sequence, click a frame in the strip or use **Play texture sequence**. IDs need not be consecutive. Actor-slot playback is a manual preview; map/prop playback uses descriptor timing at 30 ticks/s. The strip shows discrete frames. Unknown formats remain undecoded. See [viewer-expansion.md](viewer-expansion.md).
 
 Table 14 automatically decodes 103 of 167 HUD images using draw-layout evidence. Two overlay sequences (0x83–0x8E and 0x8F–0x9E) appear in the sequence strip. The other 64 entries still lack usable layouts; see [animation-workspace.md](animation-workspace.md).

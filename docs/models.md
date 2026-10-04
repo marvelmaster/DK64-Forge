@@ -18,6 +18,22 @@ Selecting an actor automatically scans Table 11 against its skeleton and prefers
 
 For props, **Play** advances ROM texture animations and embedded matrix tracks. Select an animation and scrub or play it. The technical texture-frame and script-speed controls are hidden; the preview uses speed 1. Part matrices include the stored pre/post transforms and interpolated TRS keys. Track triggering, forward looping and speed are preview choices rather than execution of object scripts. Static GLB exports capture the currently displayed prop pose. Billboard props decode their stored quad/UV/texture records and face the preview camera; GLB stores fixed quad geometry with billboard metadata.
 
+## Clip organization and irregular skeletons
+
+**Compare clips…** opens two independently selectable clips on a shared cycle
+position. **Favorite** / **Only favorites** and **Name / associate selected clip…**
+save personal records per model, variant and ROM. User associations can be included
+in the model filter, but retain explicit personal labels and do not change ROM
+ownership metadata or level autoplay routes.
+
+K. Lumsy supports 37 bones referencing 39 scratch groups; Beanstalk supports its
+50 reordered local bone slots. Both animate and export. Bananaporter Zipper has
+17 bones referencing 18 groups and 45 fully sampled compatible clips; its original
+clip ownership remains unresolved. Toy Monster shows and exports its animated
+12-bone skeleton, since its actor asset has no triangles. Assembly of its separate
+component meshes remains open. See [animation-workspace.md](animation-workspace.md)
+for details and session save/restore controls.
+
 ## Levels
 
 Map playback selects texture frames using each descriptor's ticks-per-frame, with a diagnostic 30-tick/s preview. Dynamic segments are bound per chunk, as in the game's loader. All chunks are shown; the technical chunk selector and its search are hidden. Game portal visibility is not simulated. Procedural effect 7 surfaces include their source-selected texture, transparency and scrolling tile origin. Other procedural effect IDs are reported in Notes.

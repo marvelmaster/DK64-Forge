@@ -6,12 +6,14 @@
 
 | Area | Available now |
 |---|---|
-| Models / Characters | Five playable Kongs; normal, weapon, instrument and low-poly variants; skinned playback and glTF export; DK bongos attached to the animated root |
+| Models / Characters | Five playable Kongs; normal, weapon, instrument and low-poly variants; skinned playback and glTF export; DK bongos attached to the actor/scene origin |
 | Animation names | Table-13 ownership plus direct source-call evidence; Tiny Pony Tail Twirl, Chunky Primate Punch, Lanky Orangstand/Baboon Balloon and Diddy Rocketbarrel routes identified |
 | Character materials | ROM combiner mux, primitive/environment colours, one/two-cycle evaluation, shade-only materials, preview directional lighting, ROM RGBA16 mip levels and separate manual eye/colour selection, mouth opening and automatic Kong blinking |
 | Other models | Static actor/prop viewing and GLB export; confirmed clips first, optional unassigned-clip filter, rigid-joint playback and animated GLB export; embedded prop matrix tracks and animated prop GLB export, billboard quads and prop texture playback/crossfades |
 | Levels | Map geometry at the game's 1/3 map scale with texture-frame playback; setup props placed from ROM records; setup actors and character spawns drawn with the models of the game's definition tables (markers only where no model exists); click selection, double-click focus, named placement/category filters, current-pose selection export and curated enemy animation; procedural effect-7 scrolling surfaces and Fungi night spawns |
-| Textures | Banks 25, 7 and 14; usage-derived decoding (including 44 HUD images in bank 14), thumbnail grid, usage links, sequence playback, pixel preview and bank-qualified PNG export |
+| Textures | Banks 25, 7 and 14; usage-derived decoding (including 103 HUD images in bank 14), thumbnail grid, usage links, sequence playback, pixel preview and bank-qualified PNG export |
+| Animation workflow | Two synchronized clip previews; favorites and personal names/associations scoped to each model/variant and ROM; recovered ownership remains separate |
+| Sessions | Manual JSON save/open and optional automatic restoration; cameras, poses, selections, filters and texture states; restoration ends paused |
 | Tiny hair | Optional source-derived procedural diagnostic preview/export; disabled by default because world motion and collision-anchor inputs are approximated |
 | Audio | 174 songs with ROM reverb settings, 1,126 SFX, WAV/MP3 export |
 
@@ -118,3 +120,7 @@ The level exploration update adds picking/focus/name filters, optional interpola
 ## Animation workflow and sessions (2026-10-04)
 
 Side-by-side clip comparison, model-scoped favorites/personal labels and ROM-bound viewer sessions are implemented. K. Lumsy and Beanstalk animate/export with their irregular skeletons; the Zipper supports 45 compatible clips without claiming ownership. Toy Monster displays and exports its animated skeleton; its component mesh assembly remains open. HUD coverage is now 103/167, with two source-defined overlay sequences. See [animation-workspace.md](animation-workspace.md) for controls, validation and remaining limits.
+
+## Windows access-violation report (2026-10-04)
+
+A screenshot showed a native Python/Qt memory-read error. The user clarified that they had not observed a Forge crash; the message may have originated from an agent test process. No responsible process or reproducible trigger was identified. A subsequent process inspection found no running Python process associated with this repository. The completed test logs recorded success. This remains an unattributed report, not a confirmed or fixed application defect; no crash-related code change was made. If it recurs, record the action, affected window and process before closing the error, and run with Python faulthandler enabled.
