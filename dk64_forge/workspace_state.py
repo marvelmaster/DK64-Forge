@@ -54,7 +54,8 @@ def capture(window):
             interpolate=w.interpolate_check.isChecked(),owned=w.dk_only_check.isChecked(),
             timing=w.timing_mode_combo.currentData(),speed=w.speed_slider.value(),search=w.animation_combo.search_edit.text(),camera=camera_state(w.viewport)),
         models=browser_state(w.models_tab),levels=browser_state(w.levels_tab),
-        textures=dict(bank=t.bank_combo.currentData(),search=t.search_edit.text(),show=t.show_combo.currentData(),
+        textures=dict(connected=dict(tab=t.view_tabs.currentIndex(),browse=t.assembly_panel.browse.isChecked(),
+            search=t.assembly_panel.combo.search_edit.text(),key=t.assembly_panel.combo.currentData(),zoom=t.assembly_panel.zoom),bank=t.bank_combo.currentData(),search=t.search_edit.text(),show=t.show_combo.currentData(),
             zoom=t._preview_zoom,sort=t.sort_combo.currentData(),entry=t._current.index if t._current else None))
 
 def combo_value(combo,value):
@@ -135,6 +136,14 @@ class Restore:
             zoom=state.get("zoom",1.)
             if isinstance(zoom,(int,float)) and math.isfinite(zoom):
                 t._preview_zoom=max(1/16,min(float(zoom),8.));t._render_preview()
+            connected=state.get("connected",{})
+            t.assembly_panel.browse.setChecked(bool(connected.get("browse")))
+            combo_value(t.assembly_panel.combo,connected.get("key"))
+            t.assembly_panel.combo.search_edit.setText(str(connected.get("search","")))
+            assembly_zoom=connected.get("zoom",1.)
+            if isinstance(assembly_zoom,(int,float)) and math.isfinite(assembly_zoom):
+                t.assembly_panel.zoom=max(1/16,min(float(assembly_zoom),8.));t.assembly_panel.render()
+            t.view_tabs.setCurrentIndex(max(0,min(int(connected.get("tab",0)),1)))
             for c,value in zip(w.clip_tools.controls,d.get("favorites",[])):c["only"].setChecked(bool(value))
             w.clip_tools.refresh()
             w.model_tabs.setCurrentIndex(max(0,min(int(d.get("model_tab",0)),1)))

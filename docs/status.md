@@ -11,7 +11,7 @@
 | Character materials | ROM combiner mux, primitive/environment colours, one/two-cycle evaluation, shade-only materials, preview directional lighting, ROM RGBA16 mip levels and separate manual eye/colour selection, mouth opening and automatic Kong blinking |
 | Other models | Static actor/prop viewing and GLB export; confirmed clips first, optional unassigned-clip filter, rigid-joint playback and animated GLB export; embedded prop matrix tracks and animated prop GLB export, billboard quads and prop texture playback/crossfades |
 | Levels | Map geometry at the game's 1/3 map scale with texture-frame playback; setup props placed from ROM records; setup actors and character spawns drawn with the models of the game's definition tables (markers only where no model exists); click selection, double-click focus, named placement/category filters, current-pose selection export and curated enemy animation; procedural effect-7 scrolling surfaces and Fungi night spawns |
-| Textures | Banks 25, 7 and 14; usage-derived decoding (including 103 HUD images in bank 14), thumbnail grid, usage links, sequence playback, pixel preview and bank-qualified PNG export |
+| Textures | Banks 25, 7 and 14; usage-derived decoding (including 103 HUD images in bank 14), thumbnail grid, usage links, sequence playback, pixel preview, seven established flat assemblies, 554 model texture atlas groups and bank-qualified PNG/layout export |
 | Animation workflow | Two synchronized clip previews; favorites and personal names/associations scoped to each model/variant and ROM; recovered ownership remains separate |
 | Sessions | Manual JSON save/open and optional automatic restoration; cameras, poses, selections, filters and texture states; restoration ends paused |
 | Tiny hair | Optional source-derived procedural diagnostic preview/export; disabled by default because world motion and collision-anchor inputs are approximated |
@@ -97,7 +97,7 @@ Only the captured interior interval of DK Entry 4 establishes 30 adjusted units/
 
 ## Validation
 
-Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **178 passing tests**, including the native Windows OpenGL checks, for **305 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
+Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **185 tests of current coverage**, including the native Windows OpenGL checks, for **312 total coverage**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
 
 Tab details: [models.md](models.md), [textures.md](textures.md), [audio.md](audio.md).
 
@@ -124,3 +124,7 @@ Side-by-side clip comparison, model-scoped favorites/personal labels and ROM-bou
 ## Windows access-violation report (2026-10-04)
 
 A screenshot showed a native Python/Qt memory-read error. The user clarified that they had not observed a Forge crash; the message may have originated from an agent test process. No responsible process or reproducible trigger was identified. A subsequent process inspection found no running Python process associated with this repository. The completed test logs recorded success. This remains an unattributed report, not a confirmed or fixed application defect; no crash-related code change was made. If it recurs, record the action, affected window and process before closing the error, and run with Python faulthandler enabled.
+
+## Connected textures (2026-10-04)
+
+Verified flat-image layouts and separately labelled packed model atlases are available in the texture preview, including the supplied hatch and Troff examples. Original pieces/models remain linked, exported pixels retain original resolution, and JSON records every source rectangle. Seven new focused tests plus the existing texture/workspace suites passed. See [connected-textures.md](connected-textures.md). New flat layouts, unknown formats and automatic UV remapping remain open.

@@ -15,7 +15,7 @@ import re
 from PySide6.QtCore import QEvent, Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QGuiApplication, QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QLabel, QLineEdit, QListWidget,
+    QCheckBox, QComboBox, QTabWidget, QFileDialog, QFormLayout, QFrame, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -230,7 +230,14 @@ class TextureTab(QWidget):
         self.export_button.clicked.connect(self._export_current)
         self.export_all_button.clicked.connect(self._export_shown)
         self._sequence_changed()
-        return area
+        from .texture_assembly_panel import AssemblyPanel
+        self.assembly_panel=AssemblyPanel(self._rom)
+        self.assembly_panel.open_piece.connect(self._open_assembly_piece)
+        self.assembly_panel.open_user.connect(self.open_usage.emit)
+        self.view_tabs=QTabWidget()
+        self.view_tabs.addTab(area,"Individual texture")
+        self.view_tabs.addTab(self.assembly_panel,"Connected textures")
+        return self.view_tabs
 
     # ------------------------------------------------------------------ loading
     def ensure_loaded(self):
@@ -254,6 +261,7 @@ class TextureTab(QWidget):
 
     def _bank_ready(self, result):
         self._items, self._sequences = result
+        self.assembly_panel.configure(self._items,self.bank_combo.currentData())
         self.export_all_button.setEnabled(True)
         self.status_message.emit(f"Loaded {len(self._items):,} textures and their usage/sequence references")
         self._refresh_list()
@@ -268,6 +276,7 @@ class TextureTab(QWidget):
         self._sequence_timer.stop()
         self.list_widget.clear()
         self._items = []
+        self.assembly_panel.configure((),self.bank_combo.currentData())
         self._decodable.clear()
         self._current = None
         self._current_rgba = None
@@ -345,6 +354,7 @@ class TextureTab(QWidget):
         if self._current is None or (item.table, item.index) != (self._current.table, self._current.index):
             self._preview_zoom = 1.0
         self._current = item
+        self.assembly_panel.set_image(item.index)
         self._set_info(item)
         self.usage_list.clear()
         for reference in item.references:
@@ -398,6 +408,12 @@ class TextureTab(QWidget):
             if item:
                 row.setIcon(self._icon(item))
             self._thumbnail_row += 1
+
+    def _open_assembly_piece(self,index):
+        self.show_combo.setCurrentIndex(self.show_combo.findData(SHOW_ALL))
+        self.search_edit.setText(f"0x{index:x}")
+        if self.list_widget.count():self.list_widget.setCurrentRow(0)
+        self.view_tabs.setCurrentIndex(0)
 
     def _open_usage(self, item):
         user = item.data(Qt.ItemDataRole.UserRole)

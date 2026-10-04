@@ -49,3 +49,7 @@ The Kong body texture `0xE64` remains pixel-identical to the reference decoder. 
 When a ROM descriptor or a bounded HUD draw routine assigns a texture to a sequence, choose that sequence, click a frame in the strip or use **Play texture sequence**. IDs need not be consecutive. Actor-slot playback is a manual preview; map/prop playback uses descriptor timing at 30 ticks/s. The strip shows discrete frames. Unknown formats remain undecoded. See [viewer-expansion.md](viewer-expansion.md).
 
 Table 14 automatically decodes 103 of 167 HUD images using draw-layout evidence. Two overlay sequences (0x83–0x8E and 0x8F–0x9E) appear in the sequence strip. The other 64 entries still lack usable layouts; see [animation-workspace.md](animation-workspace.md).
+
+## Connected textures
+
+The **Connected textures** section links each individual image to supported flat assemblies and actor/prop texture atlases. It joins 0610 + 060F into a complete 64×64 hatch image, and groups Troff's 25 recorded textures into a clearly labelled packed model atlas. Seven established flat layouts and 554 model groups are available in bank 25; no numeric-neighbor stitching is guessed. Browse/search sets, zoom, open source pieces or models, and export PNG plus JSON layout. Sessions restore this section too. See [connected-textures.md](connected-textures.md) for ordering evidence, pixel preservation and limits.
