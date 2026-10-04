@@ -140,7 +140,7 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setCentralWidget(self.tabs)
         from .dropdown_search import add_dropdown_search
-        add_dropdown_search(self.tabs)
+        add_dropdown_search((self.animation_combo, self.models_tab.clip_combo, self.levels_tab.chunk_combo))
         self._build_export_menu()
         self.rom_status_label = QLabel(f"ROM: {source.path.name}")
         self.rom_status_label.setToolTip(str(source.path))

@@ -62,7 +62,7 @@ Further evidence and preview limitations: [Runtime preview](runtime-preview.md).
 
 ## Simplified controls
 
-Dropdowns have a search field above them that filters their popup options without changing model or animation IDs. Clear the search to restore all choices. Models load with twice the previous camera distance; mouse-wheel zoom remains available.
+Animation and geometry-chunk dropdowns show a search field when they contain at least ten options. Short selectors (character, variant, view, timing, bank, filters and sorting) have no extra search field. Searches filter popup options without changing model or animation IDs. Clear the search to restore all choices. Models load with twice the previous camera distance; mouse-wheel zoom remains available.
 
 The Characters panel hides reference bookmarks and technical animation details (Index, Samples, Domain, Timing, Ownership, Semantic, Prefix, Root, Loop and Context). Viewport Debug retains only View and the overall model geometry count. Source validation and diagnostic metadata remain available in exports and the documentation.
 

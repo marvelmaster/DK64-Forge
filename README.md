@@ -51,7 +51,7 @@ Nothing else needs to be downloaded or set up.
   diagnostic assumption elsewhere), *Technical* plays one sample per second; the speed slider
   (0.1x–5.0x) scales both. **Mark Current as Reference** / **Go to Reference** jump back to a clip.
 - **Viewport Debug** contains the view selector and model geometry count. Technical animation
-  details and reference bookmarks are hidden. Dropdowns have search fields above them.
+  details and reference bookmarks are hidden. Long animation and geometry-chunk lists have search fields above them.
   Models initially load at twice the previous camera distance.
 - Start directly with a ROM: `.venv\Scripts\python.exe -m dk64_forge --rom C:\path\to\rom.z64`.
 - **File → Export** writes the model, the current animation only (joints + clip, no mesh), or
