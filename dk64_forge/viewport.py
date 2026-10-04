@@ -698,7 +698,15 @@ class ModelViewport(QOpenGLWidget):
             handles.update(self._create_textures(replace(data, textures=tuple(changed)), existing=handles))
 
     def set_textures(self, textures) -> None:
-        self.set_dynamic_render(replace(self._data, textures=tuple(textures)))
+        """Update image objects only; retain the current posed geometry and shade."""
+        data = replace(self._data, textures=tuple(textures))
+        if self._program and not self._failed:
+            self.makeCurrent()
+            glActiveTexture(GL_TEXTURE0)
+            self._sync_textures(self._data, data, self._textures)
+            self.doneCurrent()
+        self._data = data
+        self.update()
 
     def set_dynamic_render(self, data, *, attachment=False):
         """Retain geometry buffers and unchanged GPU textures during level playback."""

@@ -4,6 +4,7 @@ Model IDs are zero-based Table-5 indices. A compatible skeleton is not evidence
 of ownership. Only direct clip opcodes are accepted for these non-Kong actors.
 """
 from .core import anim_code_table, texture_bank
+from functools import lru_cache
 
 # Dispatch 8074C0A0 + enemy model table 8075EB80; CC0 dk64_decomp.
 SCRIPTS = {
@@ -20,13 +21,37 @@ SCRIPTS = {
     0x60: ((0x35F, "Kosha movement", "806B0848; ROM call 806B0B14 -> 8072B79C"),),
 }
 
-def confirmed_routes(rom, entry):
-    if entry not in SCRIPTS:
-        return {}
+@lru_cache(maxsize=512)
+def confirmed_routes(rom, entry, curated_only=False):
     table = anim_code_table.parse_anim_code(texture_bank.table_entry(rom, 13, 0))
+    from .actor_route_catalog import CALLS
     result = {}
-    for script, label, evidence in SCRIPTS[entry]:
+    for kind, value, label, evidence in (() if curated_only else CALLS.get(entry, ())):
+        clips = ((value, "direct", None),) if kind == "clip" else table.script_clips(value, 0)
+        for clip, route, opcode in clips:
+            if route == "direct":
+                detail = f"{kind} {value:03X}"
+                result.setdefault(clip, (f"{label} ({detail})", f"{evidence}; {detail}"))
+    # Curated semantic names take priority over generic script-context labels.
+    for script, label, evidence in SCRIPTS.get(entry, ()):
         for clip, route, opcode in table.script_clips(script, 0):
             if route == "direct":
-                result.setdefault(clip, (label, f"{evidence}; script {script:03X}, opcode {opcode:02X}"))
+                result[clip] = (label, f"{evidence}; script {script:03X}, opcode {opcode:02X}")
+    return result
+
+
+@lru_cache(maxsize=2)
+def known_clip_names(rom):
+    """Cross-model names are browsing hints, never ownership of the current model."""
+    from .actor_route_catalog import CALLS
+    from .core.animation_labels import labels_for
+    from .characters import CHARACTERS
+    result = {}
+    table = anim_code_table.parse_anim_code(texture_bank.table_entry(rom, 13, 0))
+    for character in CHARACTERS.values():
+        for clip, (name, confidence, evidence) in labels_for(table, character.table13_column).items():
+            result.setdefault(clip, (f"{character.name}: {name}", f"{confidence}; {evidence}"))
+    for entry in sorted(set(CALLS) | set(SCRIPTS)):
+        for clip, detail in confirmed_routes(rom, entry).items():
+            result.setdefault(clip, detail)
     return result

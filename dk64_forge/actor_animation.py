@@ -44,8 +44,9 @@ class ActorAnimations:
             inverse = np.eye(4)
             inverse[:3, 3] = -np.asarray(bone.global_translation)
             self.inverse_binds.append(inverse)
-        from .actor_routes import confirmed_routes
+        from .actor_routes import confirmed_routes, known_clip_names
         routes = confirmed_routes(rom, entry)
+        known_names = known_clip_names(rom)
         self.descriptors = []
         records = actor.data[actor.bone_start:actor.bone_start + count * 16]
         quarter = bone_matrix.quarter_table_words_from_rom(rom)
@@ -63,7 +64,12 @@ class ActorAnimations:
                 descriptor = replace(descriptor, label=f"{label} · {index:04X}",
                     ownership="ACTOR_OWNERSHIP_VERIFIED_STATIC_SOURCE", semantic_evidence=evidence)
             elif not descriptor.owned:
-                descriptor = replace(descriptor, label=f"Unassigned animation · {index:04X}")
+                if index in known_names:
+                    name, evidence = known_names[index]
+                    descriptor = replace(descriptor, label=f"Other actor · {name} · {index:04X}",
+                        semantic_evidence=f"Name from another actor; ownership for this model remains unknown. {evidence}")
+                else:
+                    descriptor = replace(descriptor, label=f"Unassigned animation · {index:04X}")
             self.descriptors.append(descriptor)
         self.descriptors.sort(key=descriptor_sort_key)
         self.samples = ()

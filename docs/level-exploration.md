@@ -10,7 +10,7 @@ Picking uses current animated triangles and camera-facing billboard geometry. Op
 
 ## Clips and interpolation
 
-Confirmed clips sort before unassigned candidates; known labels are sorted for browsing. Other models has **Show unassigned animations**, which can hide unknown ownership. Clip search respects this filter. Static pose remains available. Autoplay skips hidden clips; changing a clip preserves Play/Pause.
+Confirmed clips sort before unassigned candidates; known labels are sorted for browsing. Other models has **Show other / unassigned actor clips**, which can hide unknown ownership. Clip search respects this filter and updates a visible result list as you type. Choosing a result changes the animation; typing alone preserves playback and selection. Static pose remains available. Autoplay skips hidden clips; changing a clip preserves Play/Pause.
 
 **Interpolate animation** is available in Characters, Other models and Levels, and is off by default. Off displays the stored samples. On smooths between adjacent poses using the existing elapsed-time clock. Character local transforms and generic actor composed transforms use quaternion rotation interpolation and blended translation/stretch. Level actors blend cached world-space vertex/colour samples to retain performance. This level smoothing can slightly shorten rapidly rotating limbs; it is a visual preview, not recovered game interpolation. The safe-interval wrap is also a preview policy. Scrubbing at an integer sample remains exact. Embedded prop tracks retain their existing source-derived key interpolation.
 
@@ -39,3 +39,15 @@ Table 14 now decodes 44 entries: 43 font files plus overlay 0x5F. The font file 
 Local tests cover five additional actor routes, exact sample endpoints, rotation-length preservation, merged-object subsets, ray hits, 44 HUD decodes, and sparse prop-export reconstruction against the preview (button/platform examples). Native Windows checks exercise object picking/focus/filtering, clip-filter search, interpolation toggling and prop export. Selection and HUD previews were inspected. ROM-derived tests and captures remain local under existing ignore rules.
 
 The completed Windows application suite has 167 passing tests; the reference research suite has 127, for 294 total.
+
+## Actor-name audit and eye/search fixes (2026-10-04)
+
+Searchable animation selectors now display live result lists, matching asset-list search behavior. Small selectors remain dropdowns. Filtering never rewrites clip IDs and respects the ownership filter. Empty results leave the currently playing clip unchanged.
+
+Eye updates upload textures only, retaining current positions, UVs and vertex shade. A paused native Windows framebuffer comparison for all five Kongs changed only the eye region. The reported whole-body lighting change was not reproducible in that controlled check; animated poses continue to change preview lighting normally.
+
+The expanded catalog records 91 distinct constant animation calls for 42 exact models. Actor/model links come from ROM setup/enemy definitions and constant spawnActor calls. Dispatch handlers are read from 8074C0A0. Direct C calls on gCurrentActorPointer are checked against their ROM MIPS call targets/constants; opaque handlers are accepted only when the literal clip/script argument and the current-actor pointer are tracked. Movement initializer triplets use 8072B79C. Call-site evidence is retained in actor_route_catalog.py and animation tooltips. The catalog resolves 501 known clip names/contexts together with existing Kong labels. Labels from another actor do not establish ownership for the current model.
+
+A complete sample audit validated 98 model/clip pairs, filtered 18 incompatible routes, and found four unsupported skeleton/mesh structures (Toy Monster 0x27, K. Lumsy 0x44, Beanstalk 0x47 and Bananaporter Zipper 0x97). Source names may describe an action/script context rather than a precise movement; the ROM does not provide official clip names. Unknown names and additional model ownership still require source tracing or visual review. They remain explicitly unassigned. Level autoplay continues using the curated movement subset rather than arbitrary attack/defeat scripts.
+
+After the eye/search/catalog changes: 170 application tests and 127 reference tests pass (297 total). Native live-search and Kosha clip-list captures were inspected.

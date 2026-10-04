@@ -80,7 +80,7 @@ Level selection/focus and placement filters, five further confirmed enemy routes
 
 | Area | Still open |
 |---|---|
-| Animation names | Exhaustive visual review of existing labels; further special moves and effects (including Mini Monkey/Monkeyport, Hunky Chunky/Gorilla Gone). A gameplay state does not necessarily have a unique stored clip. |
+| Animation names | Further generic Actor names/ownership (501 known clip names/contexts across the current catalog, with 98 fully sampled model/clip pairs); exhaustive visual review of existing labels; further special moves and effects (including Mini Monkey/Monkeyport, Hunky Chunky/Gorilla Gone). A gameplay state does not necessarily have a unique stored clip. |
 | N64 rendering | Game-supplied RSP light state; complete TMEM layouts, fixed-point combiner rounding, coverage/dither/blender, per-pass fog state and exact texture-LOD behavior. Preview lighting is a fixed key light. glTF retains RDP state in metadata but displays an approximation. |
 | Dynamic textures | Gameplay facial adjustments, Diddy Rocketbarrel-specific texture handling, other procedural surface effects and exact RDP crossfade behavior. Single-player Kong blinking, prop crossfades and effect-7 scrolling are available. |
 | Models | Prop track triggering, runtime speed/direction/transition state; ownership of further generic actor clips and game timing; exact bongo script timing. Prop matrix playback and source-selected bongo clips are implemented. |
@@ -95,7 +95,7 @@ Only the captured interior interval of DK Entry 4 establishes 30 adjusted units/
 
 ## Validation
 
-Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **167 passing tests**, including the native Windows OpenGL checks, for **294 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
+Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **170 passing tests**, including the native Windows OpenGL checks, for **297 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
 
 Tab details: [models.md](models.md), [textures.md](textures.md), [audio.md](audio.md).
 

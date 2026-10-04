@@ -188,7 +188,7 @@ class ModelBrowserTab(QWidget):
         self.animation_heading = QLabel("Animation")
         self.animation_heading.setVisible(KIND_ACTOR in self._kinds or KIND_PROP in self._kinds)
         layout.addWidget(self.animation_heading)
-        self.unassigned_check = QCheckBox("Show unassigned animations")
+        self.unassigned_check = QCheckBox("Show other / unassigned actor clips")
         self.unassigned_check.setChecked(True)
         self.unassigned_check.setVisible(KIND_ACTOR in self._kinds)
         self.unassigned_check.toggled.connect(self._filter_clips)

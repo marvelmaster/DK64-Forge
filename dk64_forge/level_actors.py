@@ -18,7 +18,7 @@ class ActorPlayback:
         offset = 0
         for row, scene in captured:
             entry = level_content.actor_entry(tables, row)
-            routes = confirmed_routes(rom, entry)
+            routes = confirmed_routes(rom, entry, curated_only=True)
             if routes and entry not in self.animations:
                 model = models.get(("actor", entry, 0))
                 try:
