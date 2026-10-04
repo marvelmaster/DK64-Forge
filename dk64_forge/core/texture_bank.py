@@ -422,6 +422,7 @@ class BankItem:
     is_palette: bool
     conflicting: bool                # usages disagree on format/size
     table: int = 25
+    references: tuple[str, ...] = ()
 
     @property
     def kind(self) -> str:
@@ -450,7 +451,7 @@ def build_bank_items(rom: bytes, progress=None, *, table: int = 25) -> list[Bank
         users = tuple(dict.fromkeys(user_display_name(user, prop_names) for user in entry.users))
         shapes = {(u.fmt, u.size, u.width, u.height) for u in entry.usages}
         items.append(BankItem(index, entry.byte_size, derived_name(entry, prop_names, palettes),
-                              entry.primary, users, index in palettes, len(shapes) > 1, table))
+                              entry.primary, users, index in palettes, len(shapes) > 1, table, tuple(entry.users)))
     return items
 
 

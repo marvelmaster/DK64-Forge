@@ -1,6 +1,7 @@
-"""Map tree procedural geometry (8062CEA8) and effect 7 (8063D638/8063D854).
+"""Map tree procedural geometry (8062CEA8) and effects 4 / 7 (8063CF3C / 8063D638).
 
-Effect 7 is the scrolling RGBA16 surface. Other effect IDs remain unsupported;
+Effect 4 is the dual-tile IA8 surface; effect 7 the scrolling RGBA16 surface.
+Other effect IDs remain unsupported;
 portal/transform conditions are not evaluated by this preview.
 """
 import struct
@@ -52,6 +53,22 @@ def scrolling_surface(map_id, tick):
     return b''.join(struct.pack('>2I', *command) for command in commands)
 
 
+def mist_surface(tick):
+    """Effect 4: 8063CF3C/8063D1D8; IA8 64x64, two shifted texture tiles."""
+    # Runtime values start at zero, subtract then reset to 255 (not modulo 256).
+    def origin(step):
+        return 0 if tick <= 0 else 255-step*((tick-1) % (255//step+1))
+    a, b = origin(5), origin(2)
+    combine = _mux((15,15,31,7,1,7,2,7,2,15,1,7,0,7,4,7))
+    commands = ((0xD9000000, 0x200005), (0xD7000002, 0xFFFFFFFF),
+                (0xE3000A01, 0x100000), combine,
+                (0xFD700000, 0x00FFFF04), (0xF5700000, 0x07018060),
+                (0xF3000000, 0x077FF100),
+                (0xF5681000, 0x00018461), (0xF2000000|a, 0x000FC000|(a+252)),
+                (0xF5681000, 0x01018461), (0xF2000000|b, 0x010FC000|(b+252)))
+    return b"".join(struct.pack(">2I", *command) for command in commands)
+
+
 def append_geometry(data, map_id, tick=0, chunks=None):
     dl = int.from_bytes(data[0x34:0x38], 'big')
     vertices = int.from_bytes(data[0x38:0x3C], 'big')
@@ -59,7 +76,7 @@ def append_geometry(data, map_id, tick=0, chunks=None):
     for effect, offset, chunk in records(data):
         if chunks is not None and chunk != -1 and chunk not in chunks:
             continue
-        if effect != 7:
+        if effect not in (4, 7):
             unsupported.add(effect)
             continue
         begin = dl + offset
@@ -69,6 +86,6 @@ def append_geometry(data, map_id, tick=0, chunks=None):
         if end is None:
             raise ValueError('Unterminated map effect display list')
         start = len(data)
-        data += scrolling_surface(map_id, tick) + data[begin:end]
+        data += (scrolling_surface(map_id, tick) if effect == 7 else mist_surface(tick)) + data[begin:end]
         ranges.append((start, len(data), {6: vertices, 7: dl}, chunk, False))
     return data, ranges, unsupported

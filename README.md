@@ -139,3 +139,5 @@ The source code is released under the [MIT License](LICENSE). Donkey Kong 64 and
 characters belong to their respective owners; this is an unofficial, non-commercial research
 tool. The viewport layout and the audio player/renderer are adapted from JFG Forge
 ([license](licenses/JFG_Forge_MIT.txt)); other sources are listed in [licenses/THIRD_PARTY.md](licenses/THIRD_PARTY.md).
+
+The [viewer expansion](docs/viewer-expansion.md) adds confirmed level-actor motion, separate eye/colour controls, current-view and selected-object exports, background loading and a texture thumbnail/sequence browser.

@@ -12,11 +12,11 @@ from dataclasses import replace
 from pathlib import Path
 import re
 
-from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QImage, QPixmap
+from PySide6.QtCore import QEvent, Qt, Signal, QSize, QTimer
+from PySide6.QtGui import QGuiApplication, QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter, QVBoxLayout, QWidget,
+    QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from .core import texture_bank
@@ -61,6 +61,7 @@ def safe_file_stem(item) -> str:
 
 class TextureTab(QWidget):
     status_message = Signal(str)
+    open_usage = Signal(str, int)
 
     def __init__(self, rom: bytes, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -70,6 +71,19 @@ class TextureTab(QWidget):
         self._current: texture_bank.BankItem | None = None
         self._current_rgba: tuple[int, int, bytes] | None = None
         self.loaded = False
+        from .background import Loader
+        self._loader = Loader(self)
+        self._loader.progress.connect(self.status_message)
+        self._loader.failed.connect(self._load_failed)
+        self._banks, self._sequences = {}, {}
+        self._thumbnail_timer = QTimer(self)
+        self._thumbnail_timer.setInterval(15)
+        self._thumbnail_timer.timeout.connect(self._load_thumbnails)
+        self._thumbnail_row = 0
+        self._icons = {}
+        self._sequence_timer = QTimer(self)
+        self._sequence_timer.timeout.connect(self._sequence_next)
+        self._sequence_frames = ()
         self._preview_zoom = 1.0
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_side_panel())
@@ -108,7 +122,21 @@ class TextureTab(QWidget):
         layout.addLayout(form)
         self.count_label = QLabel("Open the tab to scan the texture bank.")
         layout.addWidget(self.count_label)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.hide()
+        self._loader.busy.connect(self.progress_bar.setVisible)
+        layout.addWidget(self.progress_bar)
+        self.grid_check = QCheckBox("Thumbnail grid")
+        self.grid_check.setChecked(True)
+        self.grid_check.toggled.connect(self._grid_changed)
+        layout.addWidget(self.grid_check)
         self.list_widget = QListWidget()
+        self.list_widget.setViewMode(QListWidget.ViewMode.IconMode)
+        self.list_widget.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.list_widget.setIconSize(QSize(64, 64))
+        self.list_widget.setGridSize(QSize(92, 96))
+        self.list_widget.setUniformItemSizes(True)
         layout.addWidget(self.list_widget, stretch=1)
         info = QFormLayout()
         self.name_value = QLabel("-")
@@ -148,6 +176,23 @@ class TextureTab(QWidget):
         self.image_scroll.viewport().installEventFilter(self)
         self.image_label.setToolTip("Scroll the mouse wheel to zoom in or out.")
         layout.addWidget(self.image_scroll, stretch=1)
+        self.usage_list = QListWidget()
+        self.usage_list.setMaximumHeight(100)
+        self.usage_list.setToolTip("Double-click to open the model or level using this texture")
+        self.usage_list.itemDoubleClicked.connect(self._open_usage)
+        layout.addWidget(self.usage_list)
+        self.sequence_combo = QComboBox()
+        self.sequence_combo.currentIndexChanged.connect(self._sequence_changed)
+        layout.addWidget(self.sequence_combo)
+        self.sequence_frames = QListWidget()
+        self.sequence_frames.setViewMode(QListWidget.ViewMode.IconMode)
+        self.sequence_frames.setIconSize(QSize(48, 48))
+        self.sequence_frames.setMaximumHeight(105)
+        self.sequence_frames.currentRowChanged.connect(self._sequence_frame)
+        layout.addWidget(self.sequence_frames)
+        self.sequence_play = QPushButton("Play texture sequence")
+        self.sequence_play.clicked.connect(self._sequence_toggle)
+        layout.addWidget(self.sequence_play)
         self.manual_check = QCheckBox("Use manual decoding settings")
         self.manual_panel = QWidget()
         manual = QFormLayout(self.manual_panel)
@@ -184,22 +229,33 @@ class TextureTab(QWidget):
         self.trilinear_check.toggled.connect(lambda _on: self._current and self.show_item(self._current))
         self.export_button.clicked.connect(self._export_current)
         self.export_all_button.clicked.connect(self._export_shown)
+        self._sequence_changed()
         return area
 
     # ------------------------------------------------------------------ loading
-    def ensure_loaded(self) -> None:
+    def ensure_loaded(self):
         if self.loaded:
             return
         self.loaded = True
-        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            self._items = texture_bank.build_bank_items(self._rom, table=self.bank_combo.currentData())
-        finally:
-            QGuiApplication.restoreOverrideCursor()
-        used = sum(1 for item in self._items if item.kind == "used")
-        self.status_message.emit(
-            f"Textures — {len(self._items):,} textures, {used:,} with a known format from model/map usage")
+        table = self.bank_combo.currentData()
+        def work(progress):
+            if table not in self._banks:
+                from .texture_sequences import sequences
+                items = texture_bank.build_bank_items(self._rom,
+                    lambda kind, index: progress(f"Scanning {kind} {index} for texture usage"), table=table)
+                self._banks[table] = items, sequences(self._rom, table)
+            return self._banks[table]
+        self._loader.submit(work, self._bank_ready)
+
+    def _load_failed(self, error):
+        self.loaded = False
+        self.count_label.setText("Loading failed; reopen this tab to retry.")
+        self.status_message.emit(error)
+
+    def _bank_ready(self, result):
+        self._items, self._sequences = result
         self.export_all_button.setEnabled(True)
+        self.status_message.emit(f"Loaded {len(self._items):,} textures and their usage/sequence references")
         self._refresh_list()
         if self.list_widget.count():
             self.list_widget.setCurrentRow(0)
@@ -208,12 +264,17 @@ class TextureTab(QWidget):
         if not self.loaded:
             return
         self.loaded = False
+        self._thumbnail_timer.stop()
+        self._sequence_timer.stop()
+        self.list_widget.clear()
+        self._items = []
         self._decodable.clear()
         self._current = None
         self._current_rgba = None
         self.image_label.clear()
         self.image_label.setMinimumSize(0, 0)
         self.export_button.setEnabled(False)
+        self.export_all_button.setEnabled(False)
         self.ensure_loaded()
 
     def _manual_changed(self, *_args) -> None:
@@ -252,7 +313,11 @@ class TextureTab(QWidget):
         selected = -1
         for row, item in enumerate(rows):
             marker = {"palette": "   [palette]", "unused": "   [no reference]"}.get(item.kind, "")
-            entry = QListWidgetItem(f"{item.index:04X}  {item.name}{marker}")
+            label = f"{item.index:04X}  {item.name}{marker}"
+            entry = QListWidgetItem(f"{item.index:04X}" if self.grid_check.isChecked() else label)
+            entry.setToolTip(label)
+            if self.grid_check.isChecked():
+                entry.setSizeHint(QSize(88, 92))
             entry.setData(Qt.ItemDataRole.UserRole, item.index)
             self.list_widget.addItem(entry)
             if item.index == keep:
@@ -262,6 +327,9 @@ class TextureTab(QWidget):
         self.list_widget.setUpdatesEnabled(True)
         self.list_widget.blockSignals(False)
         self.count_label.setText(f"{len(rows):,} of {len(self._items):,} textures")
+        self._item_lookup = {item.index: item for item in self._items}
+        self._thumbnail_row = 0
+        self._thumbnail_timer.start()
 
     def _select_item(self, entry: QListWidgetItem | None, _previous=None) -> None:
         if entry is None:
@@ -269,6 +337,7 @@ class TextureTab(QWidget):
         index = entry.data(Qt.ItemDataRole.UserRole)
         item = next((candidate for candidate in self._items if candidate.index == index), None)
         if item is not None:
+            self._set_sequences(item)
             self.show_item(item)
 
     # ------------------------------------------------------------------ view
@@ -277,6 +346,11 @@ class TextureTab(QWidget):
             self._preview_zoom = 1.0
         self._current = item
         self._set_info(item)
+        self.usage_list.clear()
+        for reference in item.references:
+            row = QListWidgetItem(f"Open {reference}")
+            row.setData(Qt.ItemDataRole.UserRole, reference)
+            self.usage_list.addItem(row)
         guess = item.kind == "unused" and self.guess_check.isChecked()
         decoded = self._decode_current(item)
         if decoded is None:
@@ -295,6 +369,91 @@ class TextureTab(QWidget):
         self._render_preview()
         self.export_button.setEnabled(True)
         self.status_message.emit(f"Textures / {item.index:04X} — {item.name}")
+
+    def _grid_changed(self, enabled):
+        self.list_widget.setViewMode(QListWidget.ViewMode.IconMode if enabled else QListWidget.ViewMode.ListMode)
+        self.list_widget.setGridSize(QSize(92, 96) if enabled else QSize())
+        self._refresh_list()
+
+    def _icon(self, item):
+        key = item.table, item.index
+        if key not in self._icons:
+            decoded = texture_bank.decode_item(self._rom, item)
+            if decoded:
+                w, h, rgba = decoded
+                pix = QPixmap.fromImage(QImage(rgba, w, h, w*4, QImage.Format.Format_RGBA8888).copy())
+                self._icons[key] = QIcon(pix.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio))
+            else:
+                self._icons[key] = QIcon()
+        return self._icons[key]
+
+    def _load_thumbnails(self):
+        # Short event-loop slices keep scrolling and bank changes responsive.
+        for _ in range(12):
+            if self._thumbnail_row >= self.list_widget.count():
+                self._thumbnail_timer.stop()
+                return
+            row = self.list_widget.item(self._thumbnail_row)
+            item = self._item_lookup.get(row.data(Qt.ItemDataRole.UserRole))
+            if item:
+                row.setIcon(self._icon(item))
+            self._thumbnail_row += 1
+
+    def _open_usage(self, item):
+        kind, index = item.data(Qt.ItemDataRole.UserRole).split()
+        self.open_usage.emit(kind, int(index))
+
+    def _set_sequences(self, item):
+        self._sequence_timer.stop()
+        self.sequence_play.setText("Play texture sequence")
+        self.sequence_combo.blockSignals(True)
+        self.sequence_combo.clear()
+        for frames, label, ticks in self._sequences.get(item.index, ()):
+            self.sequence_combo.addItem(label, (frames, ticks))
+        self.sequence_combo.blockSignals(False)
+        self._sequence_changed()
+
+    def _sequence_changed(self):
+        self._sequence_timer.stop()
+        self.sequence_play.setText("Play texture sequence")
+        self.sequence_frames.blockSignals(True)
+        self.sequence_frames.clear()
+        data = self.sequence_combo.currentData()
+        self._sequence_frames = data[0] if data else ()
+        for ordinal, index in enumerate(self._sequence_frames):
+            item = self._item_lookup.get(index)
+            row = QListWidgetItem(f"{ordinal}: {index:04X}")
+            if item:
+                row.setIcon(self._icon(item))
+            self.sequence_frames.addItem(row)
+        self.sequence_frames.blockSignals(False)
+        for widget in (self.sequence_combo, self.sequence_frames, self.sequence_play):
+            widget.setVisible(bool(data))
+        if data:
+            self._sequence_timer.setInterval(max(16, round(data[1]*1000/30)))
+
+    def _sequence_frame(self, row):
+        if 0 <= row < len(self._sequence_frames):
+            item = self._item_lookup.get(self._sequence_frames[row])
+            if item:
+                self.show_item(item)
+
+    def _sequence_next(self):
+        if self._sequence_frames:
+            self.sequence_frames.setCurrentRow((self.sequence_frames.currentRow()+1) % len(self._sequence_frames))
+
+    def _sequence_toggle(self):
+        if self._sequence_timer.isActive():
+            self._sequence_timer.stop()
+            self.sequence_play.setText("Play texture sequence")
+        elif self._sequence_frames:
+            self._sequence_timer.start()
+            self.sequence_play.setText("Pause texture sequence")
+
+    def hideEvent(self, event):
+        self._sequence_timer.stop()
+        self.sequence_play.setText("Play texture sequence")
+        super().hideEvent(event)
 
     def eventFilter(self, watched, event):
         if (watched is self.image_scroll.viewport() and event.type() == QEvent.Type.Wheel

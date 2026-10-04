@@ -28,6 +28,7 @@ class StaticModel:
     unsupported: dict
     rigid_joints: tuple[int, ...] = ()
     texture_sources: tuple = ()
+    normals: tuple = ()
 
 
 class TextureCache:
@@ -115,12 +116,14 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache, *, blends=No
         keyed.setdefault((texture_index, not culled, mode, fallback, mesh.materials[triangle] if mesh.materials else mesh_decoder.rdp.MaterialState(), texture1_index), []).append(triangle)
 
     positions, uvs, colors, batches, joints, uvs1 = [], [], [], [], [], []
+    normals = []
     for (texture_index, double_sided, mode, fallback, material, texture1_index), triangles in sorted(
             keyed.items(), key=lambda item: (item[0][2] != "OPAQUE", str(item[0]))):
         first = len(positions)
         for triangle in triangles:
             corners = range(3 * triangle, 3 * triangle + 3)
             joints.extend(mesh.joints[c] if mesh.joints else 0 for c in corners)
+            normals.extend(mesh.normals[c] if mesh.normals else (0.,0.,0.) for c in corners)
             positions.extend(mesh.positions[c] for c in corners)
             uvs.extend(mesh.uvs[c] for c in corners)
             uvs1.extend(mesh.secondary_uvs[c] if mesh.secondary_uvs else mesh.uvs[c] for c in corners)
@@ -141,7 +144,7 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache, *, blends=No
     textured = sum(1 for t in mesh.textures if t is not None and texture_ids.get(t) is not None)
     return StaticModel(render, mesh.triangle_count, textured, len(textures), len(missing),
                        mesh.stats.get("unsupported", {}), tuple(joints),
-                       tuple(source for source, index in texture_ids.items() if index is not None))
+                       tuple(source for source, index in texture_ids.items() if index is not None), tuple(normals))
 
 
 def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None, track: int | None = None, speed: int = 1, texture_playback: bool = True) -> StaticModel | None:
@@ -183,7 +186,7 @@ def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, ti
     from .core.map_effects import append_geometry
     data, effect_ranges, unsupported_effects = append_geometry(data, entry, tick or 0, chunks)
     mesh = mesh_decoder.decode(data, ranges + effect_ranges,
-                               rom=rom, dynamic_groups=groups, dynamic_table=7)
+                               rom=rom, dynamic_groups=groups, dynamic_table=7, image_overrides={0xFFFF04: (7, 0x3E0)})
     # The map loader func_global_asm_80650ECC draws map geometry through
     # guScale(mtx, 1/3, 1/3, 1/3) (constant at 0x80758C60, read from the ROM's code), so map
     # vertices are three times world units; setup objects and spawns use world units.
@@ -227,7 +230,7 @@ def marker_skeleton(render: PreparedRenderData):
     return PreparedSkeletonDebug((0,), (centre,), ())
 
 
-def export_glb(model: StaticModel, path, name: str) -> dict:
+def export_glb(model: StaticModel, path, name: str, *, camera=None) -> dict:
     """Write a self-contained binary glTF: one primitive per batch, COLOR_0 for the shade,
     embedded PNG textures, alpha mode and double-sidedness from the batch."""
     import json
@@ -251,8 +254,8 @@ def export_glb(model: StaticModel, path, name: str) -> dict:
         accessor = {"bufferView": add_view(_struct.pack(f"<{len(flat)}f", *flat), 34962),
                     "componentType": 5126, "count": len(values), "type": kind}
         if bounds:
-            accessor["min"] = [min(v[i] for v in values) for i in range(components)]
-            accessor["max"] = [max(v[i] for v in values) for i in range(components)]
+            accessor["min"] = [float(min(v[i] for v in values)) for i in range(components)]
+            accessor["max"] = [float(max(v[i] for v in values)) for i in range(components)]
         accessors.append(accessor)
         return len(accessors) - 1
 
@@ -297,6 +300,12 @@ def export_glb(model: StaticModel, path, name: str) -> dict:
         "materials": materials, "accessors": accessors, "bufferViews": views,
         "buffers": [{"byteLength": len(binary)}],
     }
+    if camera is not None:
+        document["cameras"] = [{"type": "perspective", "perspective": {
+            "yfov": float(np.deg2rad(45)), "znear": max(camera.scene_radius*0.005, 0.01)}}]
+        document["nodes"].append({"name": "Preview camera", "camera": 0,
+            "matrix": np.linalg.inv(np.asarray(camera.view_matrix())).flatten(order="F").tolist()})
+        document["scenes"][0]["nodes"].append(1)
     if textures:
         document.update(images=images, textures=textures, samplers=samplers)
     while len(binary) % 4:

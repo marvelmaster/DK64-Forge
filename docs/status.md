@@ -1,6 +1,6 @@
 # Project status and open work
 
-**Updated 2026-10-03.** The JFG feature-parity milestone is complete. The subsequent content/material expansion described below is implemented. Forge remains an experimental DK64 US revision-0 viewer/exporter; the four requested areas are substantially expanded, but are not fully runtime-faithful.
+**Updated 2026-10-04.** The JFG feature-parity milestone is complete. The subsequent content/material expansion described below is implemented. Forge remains an experimental DK64 US revision-0 viewer/exporter; the four requested areas are substantially expanded, but are not fully runtime-faithful.
 
 ## Supported features
 
@@ -8,10 +8,10 @@
 |---|---|
 | Models / Characters | Five playable Kongs; normal, weapon, instrument and low-poly variants; skinned playback and glTF export; DK bongos attached to the animated root |
 | Animation names | Table-13 ownership plus direct source-call evidence; Tiny Pony Tail Twirl, Chunky Primate Punch, Lanky Orangstand/Baboon Balloon and Diddy Rocketbarrel routes identified |
-| Character materials | ROM combiner mux, primitive/environment colours, one/two-cycle evaluation, shade-only materials, preview directional lighting, ROM RGBA16 mip levels and manual eye/mouth frame selection and automatic Kong blinking |
+| Character materials | ROM combiner mux, primitive/environment colours, one/two-cycle evaluation, shade-only materials, preview directional lighting, ROM RGBA16 mip levels and separate manual eye/colour selection, mouth opening and automatic Kong blinking |
 | Other models | Static actor/prop viewing and GLB export; compatible non-Kong actor clip discovery, rigid-joint playback and animated GLB export; embedded prop matrix tracks, billboard quads and prop texture playback/crossfades |
 | Levels | Map geometry at the game's 1/3 map scale with texture-frame playback; setup props placed from ROM records; setup actors and character spawns drawn with the models of the game's definition tables (markers only where no model exists); combined static GLB export, chunk selection, procedural effect-7 scrolling surfaces and Fungi night spawns |
-| Textures | Banks 25, 7 and 14; usage-derived decoding, manual format/size selection, pixel preview and bank-qualified PNG export |
+| Textures | Banks 25, 7 and 14; usage-derived decoding, thumbnail grid, usage links, sequence playback, pixel preview and bank-qualified PNG export |
 | Tiny hair | Optional source-derived procedural diagnostic preview/export; disabled by default because world motion and collision-anchor inputs are approximated |
 | Audio | 174 songs with ROM reverb settings, 1,126 SFX, WAV/MP3 export |
 
@@ -68,15 +68,19 @@ Remaining Python cost is the per-batch draw loop (~0.02 ms per batch). Merging b
 
 Measure with `experiments/phase1_static_dk/tools/bench_viewport.py` (real OpenGL; Qt's offscreen platform has no GL context).
 
+## Viewer expansion (2026-10-04)
+
+Confirmed actor routes and level playback, independent eye/colour controls, current-view and selected-object export, pose-dependent preview lighting, map fog, effect 4, background loading, caches, frustum rejection, texture thumbnails/usage navigation and sequence playback are implemented. Evidence and practical limits: [viewer-expansion.md](viewer-expansion.md).
+
 ## Remaining work
 
 | Area | Still open |
 |---|---|
 | Animation names | Exhaustive visual review of existing labels; further special moves and effects (including Mini Monkey/Monkeyport, Hunky Chunky/Gorilla Gone). A gameplay state does not necessarily have a unique stored clip. |
-| N64 rendering | Game-supplied RSP light state; complete TMEM layouts, fixed-point combiner rounding, coverage/dither/blender, fog and exact texture-LOD behavior. Preview lighting is a fixed key light. glTF retains RDP state in metadata but displays an approximation. |
+| N64 rendering | Game-supplied RSP light state; complete TMEM layouts, fixed-point combiner rounding, coverage/dither/blender, per-pass fog state and exact texture-LOD behavior. Preview lighting is a fixed key light. glTF retains RDP state in metadata but displays an approximation. |
 | Dynamic textures | Gameplay facial adjustments, Diddy Rocketbarrel-specific texture handling, other procedural surface effects and exact RDP crossfade behavior. Single-player Kong blinking, prop crossfades and effect-7 scrolling are available. |
-| Models | Prop track triggering, runtime speed/direction/transition state and animated prop export; confirmed ownership/timing of generic actor clips; exact bongo script timing. Prop matrix playback and source-selected bongo clips are implemented. |
-| Levels | General spawn conditions and actor scripts; procedural effect IDs 2/3/4; camera-dependent portal visibility and dynamic surface transforms. Billboard quads, effect-7 surfaces, manual chunk inspection, Fungi night substitutions, source prop rotation order and placed texture playback are implemented. |
+| Models | Prop track triggering, runtime speed/direction/transition state and animated prop export; ownership of further generic actor clips and game timing; exact bongo script timing. Prop matrix playback and source-selected bongo clips are implemented. |
+| Levels | General spawn conditions and actor scripts; procedural effect IDs 2/3; camera-dependent portal visibility and dynamic surface transforms. Billboard quads, effect-7 surfaces, manual chunk inspection, Fungi night substitutions, source prop rotation order and placed texture playback are implemented. |
 | Tiny hair | Actual world speed/heading and collision-anchor movement, exact game float behavior and runtime comparison. The optional preview is diagnostic and must not be treated as bit-exact restoration. |
 | Texture metadata | Usage-derived HUD formats/palettes, unused texture formats and remaining undecodable usages. Table 14 currently requires manual decoding. |
 | Animation runtime | Ordinary AAS adjustments beyond the Tiny diagnostic; transition/blend route; fractional interpolation; per-clip timing/scalars, endpoints and loop semantics. Origin-centered exports omit actor/world placement. |
@@ -87,7 +91,7 @@ Only the captured interior interval of DK Entry 4 establishes 30 adjusted units/
 
 ## Validation
 
-Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **148 passing tests**, including the native Windows OpenGL checks, for **275 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
+Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **156 passing tests**, including the native Windows OpenGL checks, for **283 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
 
 Tab details: [models.md](models.md), [textures.md](textures.md), [audio.md](audio.md).
 
@@ -97,7 +101,7 @@ A custom jaw-opening preview is available for all five Kongs; zero retains the R
 
 ## Level playback performance (2026-10-04)
 
-Level playback retains map and placed-object geometry, transforms, vertex buffers and GPU texture handles. It updates only changed texture images and procedural surface UVs. Repeated textures are shared; compatible opaque/masked placement batches are combined while blended batches and billboard pivots stay separate.
+Level playback retains map and placed-object geometry, transforms, vertex buffers and GPU texture handles. It updates changed texture images and procedural surface UVs. The newer actor path additionally copies precomputed pose/normal cycles into existing buffers. Repeated textures are shared; compatible opaque/masked placement batches are combined while blended batches and billboard pivots stay separate.
 
 The first optimization reached approximately 22 FPS in a local native Windows Japes benchmark with all 507 placements enabled, versus the 2 FPS reported in the user capture. Before the change, CPU map decoding took 109–118 ms and placement rebuilding 116–118 ms per warmed tick, before GPU uploads. After the change, the isolated native update median was 6.8 ms, with paint/event processing around 12.6 ms. Placed content uses 269 shared textures and 677 batches instead of 1,058 textures and 1,233 batches; GPU texture handles survive playback. These figures describe this machine and viewport, not a guaranteed rate for every map.
 

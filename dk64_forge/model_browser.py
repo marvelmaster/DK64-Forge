@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMessageBox, QPushButton, QScrollArea, QSpinBox, QSlider, QSplitter, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSlider, QSplitter, QVBoxLayout, QWidget,
 )
 
 from . import static_model
@@ -97,6 +97,8 @@ class ModelBrowserTab(QWidget):
         self.viewport = None
         self._content = None
         self._content_models = {}
+        self._actor_playback = None
+        self._captured = []
         self._actor_animations = None
         self._animation_assets = None
         self._scene_tick = 0
@@ -109,6 +111,12 @@ class ModelBrowserTab(QWidget):
         self._playback_time = None
         self._playback_remainder = 0.0
         self.loaded = False
+        from .background import Loader
+        from collections import OrderedDict
+        self._assets = OrderedDict()
+        self._loader = Loader(self)
+        self._loader.progress.connect(self.status_message)
+        self._loader.failed.connect(self.status_message)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         side_scroll = QScrollArea()
         side_scroll.setWidgetResizable(True)
@@ -146,6 +154,11 @@ class ModelBrowserTab(QWidget):
         layout.addWidget(self.kind_combo)
         self.count_label = QLabel("Open the tab to list the entries.")
         layout.addWidget(self.count_label)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.hide()
+        self._loader.busy.connect(self.progress_bar.setVisible)
+        layout.addWidget(self.progress_bar)
         self.list_widget = QListWidget()
         layout.addWidget(self.list_widget, stretch=1)
         info = QFormLayout()
@@ -193,12 +206,12 @@ class ModelBrowserTab(QWidget):
         layout.addWidget(self.scene_play)
         self.content_check = QCheckBox("Show placed props and actor spawns")
         self.content_check.setVisible(KIND_MAP in self._kinds)
-        self.content_check.toggled.connect(self._level_content_changed)
+        self.content_check.toggled.connect(self._load_content_async)
         layout.addWidget(self.content_check)
         self.night_check = QCheckBox("Fungi Forest night spawns")
         self.night_check.setToolTip("Source-defined enemy replacements on map 48; other game conditions are unresolved.")
         self.night_check.setVisible(KIND_MAP in self._kinds)
-        self.night_check.toggled.connect(self._level_content_changed)
+        self.night_check.toggled.connect(self._load_content_async)
         layout.addWidget(self.night_check)
         self.chunk_combo = QComboBox()
         self.chunk_combo.addItem("All geometry chunks", None)
@@ -207,6 +220,7 @@ class ModelBrowserTab(QWidget):
         self.chunk_combo.currentIndexChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.chunk_combo)
         self.objects_list = QListWidget()
+        self.objects_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.objects_list.setMaximumHeight(170)
         self.objects_list.setVisible(KIND_MAP in self._kinds)
         layout.addWidget(self.objects_list)
@@ -216,16 +230,27 @@ class ModelBrowserTab(QWidget):
         self.frame_spin.setToolTip("Select a ROM texture frame. Each slot wraps independently; Kong blinking is available in Characters; gameplay timing is not inferred for generic actors.")
         self.frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.frame_spin)
+        self.fog_check = QCheckBox("Map fog (ROM settings)")
+        self.fog_check.setChecked(False)
+        self.fog_check.setVisible(KIND_MAP in self._kinds)
+        self.fog_check.setToolTip("Original colour and projected-depth range. Optional: the distant overview camera can make original fog very dense.")
+        self.fog_check.toggled.connect(self._update_fog)
+        layout.addWidget(self.fog_check)
         self.reset_button = QPushButton("Reset view")
-        self.export_button = QPushButton("Export static GLB...")
+        self.export_button = QPushButton("Export current view / pose...")
         self.export_button.setEnabled(False)
         self.export_all_button = QPushButton("Export all shown as GLB...")
         self.export_all_button.setToolTip("Export every entry of the current list (search and filter apply) "
                                           "as static GLB files into one folder.")
         layout.addWidget(self.reset_button)
         layout.addWidget(self.export_button)
+        self.export_selected_button = QPushButton("Export selected objects...")
+        self.export_selected_button.setVisible(KIND_MAP in self._kinds)
+        self.export_selected_button.clicked.connect(self._export_selected)
+        layout.addWidget(self.export_selected_button)
         layout.addWidget(self.export_all_button)
-        note = QLabel("Static rest pose. ROM colour/alpha combiner; preview lighting. "
+        note = QLabel("Confirmed actor clips are preferred; compatible-only clips remain exploratory. "
+                      "ROM colour/alpha combiner; preview lighting. "
                       "Magenta = texture referenced but not decoded. Texture frames are selectable.")
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -250,7 +275,7 @@ class ModelBrowserTab(QWidget):
             return
         try:
             result = self._actor_animations.export_glb(model, Path(target), entry.name)
-            self.status_message.emit(f"Exported {result['samples']} samples on {result['bones']} bones; diagnostic timing, owner unknown.")
+            self.status_message.emit(f"Exported {result['samples']} samples on {result['bones']} bones; preview timing, ownership recorded in GLB.")
         except Exception as exc:
             QMessageBox.warning(self, "Actor clip export failed", str(exc))
 
@@ -276,14 +301,15 @@ class ModelBrowserTab(QWidget):
             if self._animation_assets is None:
                 self._animation_assets = animation_assets(self._rom)
             entry, model = self._current
-            self._actor_animations = ActorAnimations(self._rom, entry.index, model, self._animation_assets)
+            if self._actor_animations is None:
+                self._actor_animations = ActorAnimations(self._rom, entry.index, model, self._animation_assets)
             self.clip_combo.blockSignals(True)
             self.clip_combo.clear()
             self.clip_combo.addItem("Static rest pose", None)
             for descriptor in self._actor_animations.descriptors:
                 self.clip_combo.addItem(descriptor.label, descriptor.table11_id)
             self.clip_combo.blockSignals(False)
-            self.status_message.emit(f"{len(self._actor_animations.descriptors)} structurally compatible clips; owner, game timing and runtime adjustments remain unverified.")
+            self.status_message.emit(f"{sum(d.owned for d in self._actor_animations.descriptors)} source-confirmed, {sum(not d.owned for d in self._actor_animations.descriptors)} compatible-only clips; preview timing.")
         except Exception as exc:
             self._actor_animations = None
             self.status_message.emit(f"Actor animation unavailable: {exc}")
@@ -333,6 +359,7 @@ class ModelBrowserTab(QWidget):
             return
         points = self._actor_animations.pose(frame)
         self.viewport.set_scene_data(points, static_model.marker_skeleton(self._current[1].render))
+        self.viewport.set_vertex_colors(self._actor_animations.colors(frame))
 
     def _toggle_scene_play(self):
         if self._scene_timer.isActive():
@@ -384,6 +411,8 @@ class ModelBrowserTab(QWidget):
             self._current = entry, replace(old, render=render)
             if self._content_playback is not None and self.content_check.isChecked():
                 self._content = self._content_playback.render(self._scene_tick)
+                if self._actor_playback is not None:
+                    self._content = self._actor_playback.render(self._content, self._scene_tick)
                 self.viewport.set_dynamic_render(self._content, attachment=True)
             return
         model = LOADERS[entry.kind](self._rom, entry.index, self._cache, tick=self._scene_tick,
@@ -399,12 +428,38 @@ class ModelBrowserTab(QWidget):
             if entry.kind == KIND_MAP and self.content_check.isChecked():
                 from .level_content import content_render
                 self._content, _rows, _missing = content_render(self._rom, entry.index, self._cache,
-                    tick=self._scene_tick, night=self.night_check.isChecked(), models=self._content_models)
+                    tick=self._scene_tick, night=self.night_check.isChecked(), models=self._content_models, capture=self._captured)
                 self.viewport.set_attachment_data(self._content)
 
-    def _level_content_changed(self, *_args):
+    def _prepare_content(self, entry, night, progress):
+        from .level_content import content_render
+        from .level_playback import content_playback
+        from .level_actors import ActorPlayback
+        captured = []
+        progress("Loading placed objects and actor models")
+        content, rows, missing = content_render(self._rom, entry.index, self._cache,
+            night=night, models=self._content_models, capture=captured)
+        progress("Preparing confirmed actor animations")
+        playback = content_playback(content, self._content_models, self._cache) if content else None
+        actors = ActorPlayback(self._rom, captured, self._content_models) if content else None
+        return content, rows, missing, captured, playback, actors
+
+    def _load_content_async(self):
+        if self._current is None or not self.content_check.isChecked():
+            self._loader.cancel()
+            self._level_content_changed()
+            return
+        self.pause()
+        entry = self._current[0]
+        night = self.night_check.isChecked()
+        self._loader.submit(lambda progress: self._prepare_content(entry, night, progress),
+            lambda result: self._level_content_changed(prepared=result))
+
+    def _level_content_changed(self, *_args, prepared=None):
         self._content_playback = None
         self._content = None
+        self._actor_playback = None
+        self._captured = []
         self.objects_list.clear()
         if self.viewport is None or self._current is None:
             return
@@ -415,7 +470,9 @@ class ModelBrowserTab(QWidget):
         from . import level_content
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self._content, rows, missing = level_content.content_render(self._rom, entry.index, self._cache, night=self.night_check.isChecked(), models=self._content_models)
+            if prepared is None:
+                prepared = self._prepare_content(entry, self.night_check.isChecked(), self.status_message.emit)
+            self._content, rows, missing, self._captured, self._content_playback, self._actor_playback = prepared
         except Exception as exc:
             self.status_message.emit(f"Level contents could not be read: {exc}")
             return
@@ -423,12 +480,12 @@ class ModelBrowserTab(QWidget):
             QGuiApplication.restoreOverrideCursor()
         for row in rows:
             xyz = ", ".join(f"{v:.1f}" for v in row.position)
-            self.objects_list.addItem(f"{row.kind} {row.index}: type {row.type_id:03X}, id {row.object_id}, ({xyz})")
+            item = QListWidgetItem(f"{row.kind} {row.index}: type {row.type_id:03X}, id {row.object_id}, ({xyz})")
+            item.setData(Qt.ItemDataRole.UserRole, (row.kind, row.index))
+            self.objects_list.addItem(item)
         self.viewport.set_attachment_data(self._content)
-        if self._content is not None:
-            from .level_playback import content_playback
-            self._content_playback = content_playback(self._content, self._content_models, self._cache)
-        self.status_message.emit(f"{len(rows)} placed objects/spawns; {len(missing)} shown as markers (no model). "
+        animated = len(self._actor_playback.instances) if self._actor_playback else 0
+        self.status_message.emit(f"{len(rows)} objects/spawns; {animated} with confirmed clips; {len(missing)} markers. "
                                  "Actors use the game's model tables; spawn conditions and scripts are not executed.")
 
     def _texture_frame_changed(self, *_args):
@@ -485,15 +542,43 @@ class ModelBrowserTab(QWidget):
 
     def _select_item(self, item, _previous=None) -> None:
         if item is not None:
-            self.show_entry(item.data(Qt.ItemDataRole.UserRole))
+            entry = item.data(Qt.ItemDataRole.UserRole)
+            self.pause()
+            self._loader.submit(lambda progress: self._prepare_entry(entry, progress),
+                                lambda result: self.show_entry(entry, prepared=result))
 
-    def show_entry(self, entry: BrowserEntry) -> static_model.StaticModel | None:
+    def _prepare_entry(self, entry, progress):
+        key = entry.kind, entry.index
+        if key in self._assets:
+            self._assets.move_to_end(key)
+            return self._assets[key]
+        progress(f"Loading {entry.label}: geometry and textures")
+        model = LOADERS[entry.kind](self._rom, entry.index, self._cache)
+        animation = None
+        if model and entry.kind == KIND_ACTOR:
+            from .actor_animation import ActorAnimations, animation_assets
+            progress(f"Loading {entry.label}: animation catalog")
+            if self._animation_assets is None:
+                self._animation_assets = animation_assets(self._rom)
+            try:
+                animation = ActorAnimations(self._rom, entry.index, model, self._animation_assets)
+            except ValueError:
+                animation = None
+        result = model, animation
+        self._assets[key] = result
+        if len(self._assets) > 12:
+            self._assets.popitem(last=False)
+        return result
+
+    def show_entry(self, entry: BrowserEntry, *, prepared=None) -> static_model.StaticModel | None:
+        if prepared is None:
+            self._loader.cancel()
         self._scene_timer.stop()
         self.scene_play.setText("Play")
         self._scene_tick = 0
         self._map_playback = None
         self._content_playback = None
-        self._content_models.clear()
+        # Reuse decoded placement assets when revisiting levels.
         self.chunk_combo.blockSignals(True)
         self.chunk_combo.clear()
         self.chunk_combo.addItem("All geometry chunks", None)
@@ -516,7 +601,9 @@ class ModelBrowserTab(QWidget):
         self.prop_speed.setEnabled(entry.kind == KIND_PROP)
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            model = LOADERS[entry.kind](self._rom, entry.index, self._cache)
+            if prepared is None:
+                prepared = self._prepare_entry(entry, self.status_message.emit)
+            model, self._actor_animations = prepared
         except Exception as exc:  # keep browsing when one entry has an unexpected layout
             model, error = None, str(exc)
         else:
@@ -541,8 +628,23 @@ class ModelBrowserTab(QWidget):
         self.notes_value.setText(", ".join(f"{name}: {count}" for name, count in model.unsupported.items())
                                  or "-")
         self._show_render(model)
-        self._level_content_changed()
+        if entry.kind == KIND_MAP:
+            from .level_playback import map_playback
+            self._map_playback = map_playback(self._rom, entry.index, model, self._cache)
+        self._update_fog()
+        if self.content_check.isChecked():
+            self._load_content_async()
+        else:
+            self._level_content_changed()
         self._autoplay_model()
+        self.list_widget.blockSignals(True)
+        for index in range(self.list_widget.count()):
+            item = self.list_widget.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == entry:
+                self.list_widget.setCurrentItem(item)
+                self.list_widget.scrollToItem(item)
+                break
+        self.list_widget.blockSignals(False)
         return model
 
     def _autoplay_model(self):
@@ -566,6 +668,15 @@ class ModelBrowserTab(QWidget):
             if texture_animation.prop_animations(data):
                 self._start_scene_playback()
                 self.scene_play.setText("Pause")
+
+    def _update_fog(self):
+        if self.viewport is None or self._current is None:
+            return
+        entry = self._current[0]
+        data = texture_bank.table_entry(self._rom, 1, entry.index) if entry.kind == KIND_MAP else b""
+        enabled = len(data) > 8 and bool(data[8] & 1) and self.fog_check.isChecked()
+        self.viewport.fog = ((138/255, 82/255, 22/255) if entry.index == 38 else (0.,0.,0.)) if enabled else None
+        self.viewport.update()
 
     def _show_render(self, model: static_model.StaticModel) -> None:
         skeleton = static_model.marker_skeleton(model.render)
@@ -611,23 +722,42 @@ class ModelBrowserTab(QWidget):
             self.status_message.emit(result.summary())
         return result
 
-    def _export_current(self) -> None:
+    def _export_current(self):
         if self._current is None:
             return
-        entry, model = self._current
-        if self._content is not None:
-            from dataclasses import replace
-            from .level_content import merge_render
-            render = merge_render((model.render, self._content))
-            model = replace(model, render=render, triangles=sum(b.face_count for b in render.batches), textures=len(render.textures))
-        target, _ = QFileDialog.getSaveFileName(self, "Export static GLB",
-                                                f"{safe_file_stem(entry)}.glb", "Binary glTF (*.glb)")
+        self.pause()
+        target, _ = QFileDialog.getSaveFileName(self, "Export current view",
+            safe_file_stem(self._current[0]) + "_pose.glb", "Binary glTF (*.glb);;Preview image (*.png)")
+        if target:
+            from .snapshot import export_view
+            try:
+                export_view(self.viewport, Path(target))
+                self.status_message.emit(f"Exported {Path(target).name}")
+            except Exception as exc:
+                QMessageBox.warning(self, "Export failed", str(exc))
+
+    def _export_selected(self):
+        selected = {i.data(Qt.ItemDataRole.UserRole) for i in self.objects_list.selectedItems()}
+        if not selected or self._content is None:
+            self.status_message.emit("Select objects in the list first (Ctrl / Shift for multiple).")
+            return
+        self.pause()
+        target, _ = QFileDialog.getSaveFileName(self, "Export selected objects", "selected_objects.glb", "Binary glTF (*.glb)")
         if not target:
             return
+        from dataclasses import replace
+        from .level_content import merge_render
+        from .level_actors import ActorPlayback
+        captured = [(row, scene) for row, scene in self._captured if (row.kind, row.index) in selected]
+        render = merge_render([scene for row, scene in captured])
+        from .level_playback import content_playback
+        render = content_playback(render, self._content_models, self._cache).render(self._scene_tick)
+        render = ActorPlayback(self._rom, captured, self._content_models).render(render, self._scene_tick)
+        from .snapshot import freeze_billboards
+        render = freeze_billboards(render, self.viewport._camera)
+        model = replace(self._current[1], render=render, triangles=sum(b.face_count for b in render.batches))
         try:
-            result = static_model.export_glb(model, Path(target), safe_file_stem(entry))
-        except OSError as exc:
+            static_model.export_glb(model, Path(target), "Selected objects", camera=self.viewport._camera)
+            self.status_message.emit(f"Exported {len(selected)} selected objects")
+        except Exception as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
-            return
-        self.status_message.emit(f"Exported {Path(target).name}: {result['triangles']:,} triangles, "
-                                 f"{result['textures']} textures")

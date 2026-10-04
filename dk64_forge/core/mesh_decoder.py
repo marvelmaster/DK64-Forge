@@ -50,6 +50,7 @@ class StaticMesh:
     secondary_textures: list[DrawTexture | None] = field(default_factory=list)
     secondary_uvs: list[tuple[float, float]] = field(default_factory=list)
     joints: list[int] = field(default_factory=list)
+    normals: list[tuple] = field(default_factory=list)
     materials: list[rdp.MaterialState] = field(default_factory=list)
     culled: list[bool] = field(default_factory=list)                 # G_CULL_BACK per triangle
     stats: dict = field(default_factory=dict)
@@ -261,6 +262,7 @@ def _emit(mesh: StaticMesh, state: _State, slots, tables: _TextureTables, dynami
     for vertex in vertices:
         mesh.positions.append(vertex.position)
         mesh.joints.append(vertex.joint)
+        mesh.normals.append(tuple(_signed(b, 8)/127. for b in vertex.rgba[:3]) if vertex.lit else (0.,0.,0.))
         if vertex.lit:
             # Lit vertices carry a normal: shade with a simple fixed key light (preview only).
             normal = [_signed(b, 8) / 127.0 for b in vertex.rgba[:3]]

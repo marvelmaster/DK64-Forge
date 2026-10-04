@@ -24,6 +24,7 @@ class ActorAnimations:
                              model.triangles, 0, 0, 0, 0)
         self.source = SimpleNamespace(normalized=rom, actor=actor, skeleton=sk, character=spec)
         self.render = model.render
+        self.normals = np.asarray(model.normals)
         self.joints = np.asarray(model.rigid_joints)
         if len(self.joints) != len(self.render.positions) or any(self.joints >= count):
             raise ValueError("Actor mesh joint assignments exceed skeleton")
@@ -32,6 +33,8 @@ class ActorAnimations:
             inverse = np.eye(4)
             inverse[:3, 3] = -np.asarray(bone.global_translation)
             self.inverse_binds.append(inverse)
+        from .actor_routes import confirmed_routes
+        routes = confirmed_routes(rom, entry)
         self.descriptors = []
         records = actor.data[actor.bone_start:actor.bone_start + count * 16]
         quarter = bone_matrix.quarter_table_words_from_rom(rom)
@@ -44,7 +47,14 @@ class ActorAnimations:
                 descriptor = descriptor_from_row(row, {}, spec, {})
             except ValueError:
                 continue
-            self.descriptors.append(replace(descriptor, label=f"{index:04X} · compatible; owner unknown"))
+            if index in routes:
+                label, evidence = routes[index]
+                descriptor = replace(descriptor, label=f"Confirmed · {index:04X} · {label}",
+                    ownership="ACTOR_OWNERSHIP_VERIFIED_STATIC_SOURCE", semantic_evidence=evidence)
+            else:
+                descriptor = replace(descriptor, label=f"Compatible only · {index:04X} · owner unknown")
+            self.descriptors.append(descriptor)
+        self.descriptors.sort(key=lambda d: (not d.owned, d.table11_id))
         self.samples = ()
 
     def select(self, index):
@@ -64,6 +74,30 @@ class ActorAnimations:
             matrix = np.asarray(pose_gltf.compact_local_to_gltf_matrix(words)).reshape(4, 4) @ self.inverse_binds[joint]
             result[mask] = points[mask] @ matrix[:3, :3].T + matrix[:3, 3]
         return tuple(tuple(float(v) for v in p) for p in result)
+
+    def posed_normals(self, frame):
+        if len(self.normals) != len(self.render.positions):
+            return None
+        result = self.normals.copy()
+        for joint, words in enumerate(self.samples[frame].composed_words):
+            matrix = np.asarray(pose_gltf.compact_local_to_gltf_matrix(words)).reshape(4, 4)[:3, :3]
+            mask = self.joints == joint
+            result[mask] = self.normals[mask] @ np.linalg.pinv(matrix)
+        return result
+
+    def colors(self, frame, transform=None):
+        normals = self.posed_normals(frame)
+        colors = np.asarray(self.render.colors).copy()
+        if normals is None:
+            return tuple(map(tuple, colors))
+        if transform is not None:
+            normals = normals @ np.linalg.pinv(transform).T
+        lengths = np.linalg.norm(normals, axis=1)
+        lit = lengths > 1e-8
+        light = np.asarray((.35,.8,.5)); light /= np.linalg.norm(light)
+        shade = .55 + .45 * np.maximum(0, normals[lit] @ light / lengths[lit])
+        colors[lit, :3] = shade[:, None]
+        return tuple(map(tuple, colors))
 
     def export_glb(self, model, path, name):
         """Export the selected interior clip with the mesh's rigid ROM joints."""
@@ -113,7 +147,7 @@ class ActorAnimations:
                          "inverseBindMatrices": accessor(matrices, "MAT4", "<16f")}]
         times = accessor([(i / 30.,) for i in range(len(transforms))], "SCALAR", "<f")
         animation = {"name": "Actor compatible clip", "samplers": [], "channels": [],
-                     "extras": {"table11_id": self.selected_id, "ownership": "UNKNOWN",
+                     "extras": {"table11_id": self.selected_id, "ownership": next(d.ownership if d.owned else "UNKNOWN" for d in self.descriptors if d.table11_id == self.selected_id),
                                 "runtime_faithful": False, "timing": "diagnostic 30 units/s",
                                 "adjustments_applied": False, "endpoint_loop_policy": "unknown"}}
         for joint in range(len(matrices)):

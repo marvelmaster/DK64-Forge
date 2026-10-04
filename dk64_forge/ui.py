@@ -135,6 +135,7 @@ class MainWindow(QMainWindow):
         self.audio_tab = AudioTab(source.normalized)
         self.tabs.addTab(self.audio_tab, "Audio")
         self.texture_tab = TextureTab(source.normalized)
+        self.texture_tab.open_usage.connect(self._open_texture_usage)
         self.texture_tab.status_message.connect(lambda text: self.statusBar().showMessage(text, 10000))
         self.tabs.addTab(self.texture_tab, "Textures")
         self.tabs.currentChanged.connect(self._tab_changed)
@@ -158,6 +159,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.load_rom_action)
         file_menu.addSeparator()
         export_menu = file_menu.addMenu("Export")
+        snapshot_action = export_menu.addAction("Current view / pose (GLB or PNG)...")
+        snapshot_action.triggered.connect(self._export_snapshot)
         self.export_current_action = QAction("Export Current Selection...", self)
         self.export_current_action.triggered.connect(self._export_current)
         export_menu.addAction(self.export_current_action)
@@ -241,10 +244,15 @@ class MainWindow(QMainWindow):
 
         self.texture_frame_spin = QSpinBox()
         self.texture_frame_spin.setRange(0, 255)
-        self.texture_frame_spin.setPrefix("Eye / colour frame ")
-        self.texture_frame_spin.setToolTip("ROM texture-slot frame, wrapped per slot. Includes eye and clothing/colour slots; automatic blinking overrides eyes.")
+        self.texture_frame_spin.setPrefix("Clothing / colour frame ")
+        self.texture_frame_spin.setToolTip("Clothing and colour variants only. Eyes are controlled separately below.")
         self.texture_frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.texture_frame_spin)
+        self.eye_combo = QComboBox()
+        for label in ("Eyes open", "Eyes half closed", "Eyes closed"):
+            self.eye_combo.addItem(label)
+        self.eye_combo.currentIndexChanged.connect(self._texture_frame_changed)
+        layout.addWidget(self.eye_combo)
         self.auto_blink_check = QCheckBox("Automatic eye blinking")
         self.auto_blink_check.setToolTip("Single-player Kong blink script with repeatable preview RNG.")
         self.auto_blink_check.toggled.connect(self._texture_frame_changed)
@@ -253,7 +261,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.mouth_label)
         self.mouth_slider = QSlider(Qt.Orientation.Horizontal)
         self.mouth_slider.setRange(0, 35)
-        self.mouth_slider.setToolTip("Custom jaw opening added to the selected animation. Zero keeps the ROM expression. Preview only; glTF exports keep the authored animation.")
+        self.mouth_slider.setToolTip("Custom jaw opening added to the selected animation. Zero keeps the ROM expression. Current-view export includes this offset; animation exports retain the authored clip.")
         self.mouth_slider.valueChanged.connect(self._mouth_changed)
         layout.addWidget(self.mouth_slider)
         self.hair_check = QCheckBox("Tiny procedural hair (diagnostic)")
@@ -556,7 +564,10 @@ class MainWindow(QMainWindow):
     def _texture_frame_changed(self, *_args) -> None:
         from .core.actor_textures import KongBlink
         from .core.rom_model import parse_dynamic_textures
-        slot_frames = None
+        slots = parse_dynamic_textures(self.source.actor)
+        eye_count = 2 if self.source.character.key in ("diddy", "tiny") else 1
+        slot_frames = {slot: self.eye_combo.currentIndex() for slot in list(slots)[:eye_count]}
+        self.eye_combo.setEnabled(not self.auto_blink_check.isChecked())
         if self.auto_blink_check.isChecked():
             if not hasattr(self, "_blink") or self._blink.character != self.source.character.key:
                 self._blink = KongBlink(self.source.character.key)
@@ -677,6 +688,45 @@ class MainWindow(QMainWindow):
                 else ExportKind.STATIC_TEXTURED)
         self._export(kind)
 
+    def _open_texture_usage(self, kind, index):
+        browser = self.levels_tab if kind == "map" else self.models_tab
+        browser.ensure_loaded()
+        entry = next((e for e in browser._entries if e.kind == kind and e.index == index), None)
+        if entry is None:
+            return
+        self.tabs.setCurrentWidget(self.levels_tab if kind == "map" else self.model_tabs)
+        if kind != "map":
+            self.model_tabs.setCurrentWidget(self.models_tab)
+        browser.search_edit.clear()
+        browser.kind_combo.setCurrentIndex(0)
+        browser._loader.submit(lambda progress: browser._prepare_entry(entry, progress),
+                               lambda result: browser.show_entry(entry, prepared=result))
+
+    def _export_snapshot(self):
+        if self.tabs.currentWidget() not in (self.model_tabs, self.levels_tab):
+            self.statusBar().showMessage("Open a model or level to export its current view", 8000)
+            return
+        from .snapshot import export_view
+        viewport = self.viewport
+        if self.tabs.currentWidget() is self.levels_tab:
+            self.levels_tab.pause()
+            viewport = self.levels_tab.viewport
+        elif self.tabs.currentWidget() is self.model_tabs and self.model_tabs.currentIndex() == 1:
+            self.models_tab.pause()
+            viewport = self.models_tab.viewport
+        else:
+            self._pause()
+        if viewport is None:
+            return
+        target, _ = QFileDialog.getSaveFileName(self, "Export current view", "current_view.glb",
+                                               "Binary glTF (*.glb);;Image (*.png)")
+        if target:
+            try:
+                export_view(viewport, Path(target))
+                self.statusBar().showMessage("Exported current pose, textures and camera", 8000)
+            except Exception as exc:
+                QMessageBox.warning(self, "Snapshot export failed", str(exc))
+
     def _export(self, kind: ExportKind) -> None:
         animation_id = self.animation_combo.currentData()
         if kind in (ExportKind.ANIMATED, ExportKind.ANIMATION_ONLY) and animation_id is None:
@@ -713,10 +763,13 @@ class MainWindow(QMainWindow):
 
     def _fill_animation_combo(self, dk_only: bool, keep) -> None:
         self.animation_combo.clear()
-        for descriptor in self.source.animations:
+        for descriptor in sorted(self.source.animations, key=lambda d: (not d.owned, d.table11_id)):
             if dk_only and not descriptor.dk_owned:
                 continue
-            self.animation_combo.addItem(descriptor.label, descriptor.table11_id)
+            prefix = "Confirmed · " if descriptor.owned else "Compatible only · "
+            self.animation_combo.addItem(prefix + descriptor.label, descriptor.table11_id)
+            self.animation_combo.setItemData(self.animation_combo.count()-1,
+                descriptor.ownership + "\n" + descriptor.semantic_evidence, Qt.ItemDataRole.ToolTipRole)
         self.animation_combo.addItem("Static pose / model", None)
         index = next((i for i in range(self.animation_combo.count())
                       if self.animation_combo.itemData(i) == keep), None)
@@ -962,6 +1015,10 @@ class MainWindow(QMainWindow):
             self._show_frame(frame)
 
     def closeEvent(self, event) -> None:
+        for tab in (self.models_tab, self.levels_tab, self.texture_tab):
+            tab._loader.cancel()
+        self.texture_tab._thumbnail_timer.stop()
+        self.texture_tab._sequence_timer.stop()
         # Qt close hides the window; its owned timers otherwise keep animating,
         # including when loading a replacement ROM window.
         self._pause()

@@ -5,7 +5,8 @@ index (decomp code_36880.c, 806368F0). Setup actors and character spawners
 are drawn with the model the game's own definition tables assign
 (core.actor_tables: model, 0.15-based scale, y rotation); entries without a
 model (controllers, spawners of effects) stay labelled markers. Spawn
-conditions, actor scripts and animation are not executed.
+conditions and actor scripts are not executed. Curated animation is layered on
+by level_actors without changing placement transforms.
 """
 from dataclasses import dataclass, replace
 import math
@@ -100,7 +101,7 @@ def texture_signature(texture):
     return (texture.width, texture.height, texture.rgba, texture.wrap_s, texture.wrap_t, texture.mip_levels)
 
 
-def merge_render(scenes):
+def merge_render(scenes, *, vertex_order=None):
     shared = {}
     positions, uvs, colors, batches, textures, uvs1 = [], [], [], [], [], []
     for scene in scenes:
@@ -115,7 +116,7 @@ def merge_render(scenes):
         positions.extend(scene.positions)
         uvs.extend(scene.uvs)
         uvs1.extend(scene.uvs1 or scene.uvs)
-        colors.extend(scene.colors or ((1., 1., 1., 1.),) * len(scene.positions))
+        colors.extend(scene.colors if scene.colors is not None and len(scene.colors) else ((1., 1., 1., 1.),) * len(scene.positions))
         batches.extend(replace(b, first_vertex=b.first_vertex + first,
                                texture_index=None if b.texture_index is None else ids[b.texture_index],
                                texture1_index=None if b.texture1_index is None else ids[b.texture1_index])
@@ -133,6 +134,8 @@ def merge_render(scenes):
         first = len(compact_p)
         for batch in group:
             span = slice(batch.first_vertex, batch.first_vertex + batch.vertex_count)
+            if vertex_order is not None:
+                vertex_order.extend(range(span.start, span.stop))
             compact_p.extend(positions[span]); compact_uv.extend(uvs[span])
             compact_uv1.extend(uvs1[span]); compact_colors.extend(colors[span])
         compact_batches.append(replace(group[0], first_vertex=first, vertex_count=len(compact_p)-first))
@@ -178,7 +181,7 @@ def actor_entry(tables, placement):
     return definition.table5_entry if definition else None
 
 
-def content_render(rom, map_id, cache, *, tick=0, night=False, hidden=(), models=None):
+def content_render(rom, map_id, cache, *, tick=0, night=False, hidden=(), models=None, capture=None):
     rows = placements(rom, map_id)
     if night and map_id == 48:
         from .core.control_states import global_asm_data, GLOBAL_ASM_DATA_VRAM
@@ -220,4 +223,6 @@ def content_render(rom, map_id, cache, *, tick=0, night=False, hidden=(), models
     for key in tuple(models):
         if key[0] == "prop" and key[2] not in (0, tick):
             del models[key]
+    if capture is not None:
+        capture.extend(zip(rows, scenes))
     return merge_render(scenes), rows, tuple(missing)

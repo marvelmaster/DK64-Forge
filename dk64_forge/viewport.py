@@ -131,6 +131,8 @@ uniform mat4 mvp;
 uniform bool is_billboard;
 uniform vec3 billboard_center;
 uniform vec2 billboard_right;
+uniform vec2 fog_range;
+out float fog_amount;
 out vec2 uv;
 out vec2 uv1;
 out vec4 shade;
@@ -142,6 +144,7 @@ void main() {
                     + vec2(-billboard_right.y, billboard_right.x) * relative.z;
     }
     gl_Position = mvp * vec4(position, 1.0);
+    fog_amount = clamp(((gl_Position.z / gl_Position.w) * 500.0 + 500.0 - fog_range.x) / max(1.0, fog_range.y-fog_range.x), 0.0, 1.0);
     uv = in_uv;
     uv1 = in_uv1;
     shade = in_color;
@@ -152,6 +155,9 @@ _FRAGMENT_SHADER = """#version 330 core
 in vec2 uv;
 in vec2 uv1;
 in vec4 shade;
+in float fog_amount;
+uniform bool fog_enabled;
+uniform vec3 fog_color;
 uniform sampler2D color_texture;
 uniform sampler2D second_texture;
 uniform bool use_second_texture;
@@ -226,6 +232,7 @@ void main() {
     }
     if (alpha_mode == 1 && fragment_color.a < 0.5) discard;
     if (alpha_mode != 2) fragment_color.a = 1.0;
+    if (fog_enabled) fragment_color.rgb = mix(fragment_color.rgb, fog_color, fog_amount);
 }
 """
 
@@ -404,6 +411,12 @@ class ModelViewport(QOpenGLWidget):
         self._attachment_vbo = 0
         self._attachment_textures: dict[int, int] = {}
         self._failed = False
+        self.fog = None
+        self.frustum_culling = True
+        self._visibility_cache = {}
+        self._dynamic_attachment = False
+        self.visible_batches = 0
+        self.culled_batches = 0
         self._grid_visible = False
         self._grid_height = 0.0
         self._grid_vao = 0
@@ -693,14 +706,22 @@ class ModelViewport(QOpenGLWidget):
         vertices = self._attachment_vertex_data if attachment else self._vertex_data
         buffer = self._attachment_vbo if attachment else self._vbo
         handles = self._attachment_textures if attachment else self._textures
+        color_changed = old.colors is not data.colors and not np.array_equal(old.colors, data.colors)
+        if color_changed:
+            vertices[:, 5:9] = np.asarray(data.colors, dtype=np.float32)
         uv_changed = old.uvs != data.uvs or old.uvs1 != data.uvs1
+        positions_changed = old.positions is not data.positions and not np.array_equal(old.positions, data.positions)
+        if positions_changed and attachment:
+            self._dynamic_attachment = True
+        if positions_changed:
+            vertices[:, :3] = np.asarray(data.positions, dtype=np.float32)
         if uv_changed:
             vertices[:, 3:5] = np.asarray(data.uvs, dtype=np.float32)
             vertices[:, 9:11] = np.asarray(data.uvs1 or data.uvs, dtype=np.float32)
         if self._program and not self._failed:
             self.makeCurrent()
             self._sync_textures(old, data, handles)
-            if uv_changed and buffer:
+            if (uv_changed or positions_changed or color_changed) and buffer:
                 glBindBuffer(GL_ARRAY_BUFFER, buffer)
                 glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.nbytes, vertices)
                 glBindBuffer(GL_ARRAY_BUFFER, 0)
@@ -717,6 +738,7 @@ class ModelViewport(QOpenGLWidget):
             self.makeCurrent()
             self._destroy_attachment_resources()
         self._attachment_data = data
+        self._dynamic_attachment = False
         if data is None:
             self._attachment_vertex_data = None
         else:
@@ -826,13 +848,28 @@ class ModelViewport(QOpenGLWidget):
             sources = [(self._data, self._vao, self._textures)]
             if self._attachment_data is not None and self._attachment_vao:
                 sources.append((self._attachment_data, self._attachment_vao, self._attachment_textures))
+            from .visibility import batch_spheres, visible_batches
+            masks = []
+            for ordinal, (data, _vao, _textures) in enumerate(sources):
+                if ordinal == 1 and self._dynamic_attachment:
+                    # Never reject a moving actor using a stale rest-pose bound.
+                    masks.append(np.ones(len(data.batches), dtype=bool))
+                    continue
+                cached = self._visibility_cache.get(ordinal)
+                if cached is None or cached[0] is not data.positions or cached[1] is not data.batches:
+                    cached = self._visibility_cache[ordinal] = (data.positions, data.batches, batch_spheres(data))
+                masks.append(visible_batches(cached[2], mvp) if self.frustum_culling else np.ones(len(data.batches), dtype=bool))
+            visibility = [{id(b): bool(show) for b, show in zip(data.batches, masks[i])} for i, (data, _, _) in enumerate(sources)]
+            self.visible_batches = sum(int(mask.sum()) for mask in masks)
+            self.culled_batches = sum(len(mask) for mask in masks) - self.visible_batches
             self._begin_mesh_pass(mvp)
             for source_index, batch in ordered_draw_batches(
                 tuple(source[0] for source in sources),
                 self._camera.view_matrix(),
             ):
                 data, vao, textures = sources[source_index]
-                self._paint_mesh(mvp, data, vao, textures, batch)
+                if visibility[source_index][id(batch)]:
+                    self._paint_mesh(mvp, data, vao, textures, batch)
             glBindVertexArray(0)
             glUseProgram(0)
             glDepthMask(GL_TRUE)
@@ -851,6 +888,9 @@ class ModelViewport(QOpenGLWidget):
         glUniform2f(self._uniform(program, "billboard_right"), *right)
         glUniform1i(self._uniform(program, "color_texture"), 0)
         glUniform1i(self._uniform(program, "second_texture"), 1)
+        glUniform1i(self._uniform(program, "fog_enabled"), int(self.fog is not None))
+        glUniform2f(self._uniform(program, "fog_range"), 990., 999.)
+        glUniform3f(self._uniform(program, "fog_color"), *(self.fog or (0., 0., 0.)))
         self._last_material = None
         self._bound_vao = None
         self._mesh_state = None
