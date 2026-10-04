@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 import re
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QLabel, QLineEdit, QListWidget,
@@ -70,6 +70,7 @@ class TextureTab(QWidget):
         self._current: texture_bank.BankItem | None = None
         self._current_rgba: tuple[int, int, bytes] | None = None
         self.loaded = False
+        self._preview_zoom = 1.0
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_side_panel())
         splitter.addWidget(self._build_view())
@@ -122,6 +123,8 @@ class TextureTab(QWidget):
                               ("Size", self.size_value), ("Format", self.format_value),
                               ("Used by", self.used_value)):
             info.addRow(label, widget)
+        info.labelForField(self.format_value).hide()
+        self.format_value.hide()
         layout.addLayout(info)
         note = QLabel("The ROM stores no texture names or formats. Formats come from how a model or "
                       "map loads the texture; names from the first user.")
@@ -139,13 +142,15 @@ class TextureTab(QWidget):
         self.image_label = QLabel("Select a texture from the list.")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setWordWrap(True)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.image_label)
-        layout.addWidget(scroll, stretch=1)
+        self.image_scroll = QScrollArea()
+        self.image_scroll.setWidgetResizable(True)
+        self.image_scroll.setWidget(self.image_label)
+        self.image_scroll.viewport().installEventFilter(self)
+        self.image_label.setToolTip("Scroll the mouse wheel to zoom in or out.")
+        layout.addWidget(self.image_scroll, stretch=1)
         self.manual_check = QCheckBox("Use manual decoding settings")
-        layout.addWidget(self.manual_check)
-        manual = QFormLayout()
+        self.manual_panel = QWidget()
+        manual = QFormLayout(self.manual_panel)
         self.format_combo = QComboBox()
         for label, fmt, size in (("RGBA16", 0, 2), ("RGBA32", 0, 3), ("IA4", 3, 0), ("IA8", 3, 1), ("IA16", 3, 2), ("I4", 4, 0), ("I8", 4, 1)):
             self.format_combo.addItem(label, (fmt, size))
@@ -157,7 +162,9 @@ class TextureTab(QWidget):
         self.interleave_check = QCheckBox("Undo odd-row word swap")
         for label, widget in (("Format", self.format_combo), ("Width", self.width_spin), ("Height", self.height_spin), ("Storage", self.interleave_check)):
             manual.addRow(label, widget)
-        layout.addLayout(manual)
+        layout.addWidget(self.manual_panel)
+        self.manual_panel.hide()
+        self.manual_check.hide()
         self.manual_check.toggled.connect(self._manual_changed)
         self.format_combo.currentIndexChanged.connect(self._manual_changed)
         self.interleave_check.toggled.connect(self._manual_changed)
@@ -170,6 +177,7 @@ class TextureTab(QWidget):
         self.export_all_button = QPushButton("Export all shown as PNG...")
         for widget in (self.trilinear_check, self.guess_check, self.export_button, self.export_all_button):
             layout.addWidget(widget)
+        self.guess_check.hide()
         self.export_button.setEnabled(False)
         self.export_all_button.setEnabled(False)
         self.guess_check.toggled.connect(lambda _on: self._current and self.show_item(self._current))
@@ -204,6 +212,7 @@ class TextureTab(QWidget):
         self._current = None
         self._current_rgba = None
         self.image_label.clear()
+        self.image_label.setMinimumSize(0, 0)
         self.export_button.setEnabled(False)
         self.ensure_loaded()
 
@@ -264,6 +273,8 @@ class TextureTab(QWidget):
 
     # ------------------------------------------------------------------ view
     def show_item(self, item) -> None:
+        if self._current is None or (item.table, item.index) != (self._current.table, self._current.index):
+            self._preview_zoom = 1.0
         self._current = item
         self._set_info(item)
         guess = item.kind == "unused" and self.guess_check.isChecked()
@@ -271,7 +282,8 @@ class TextureTab(QWidget):
         if decoded is None:
             self._current_rgba = None
             self.image_label.setPixmap(QPixmap())
-            reason = ("no model or map loads it, so its format is unknown — enable the GUESS preview"
+            self.image_label.setMinimumSize(0, 0)
+            reason = ("no model or map loads it, so its format is unknown"
                       if item.kind == "unused" else "this format/size could not be decoded")
             self.image_label.setText(f"{item.name}: {reason}.")
             self.export_button.setEnabled(False)
@@ -280,23 +292,47 @@ class TextureTab(QWidget):
         if self.manual_check.isChecked():
             self.format_value.setText(self.format_combo.currentText() + " (manual settings; unverified)")
         self._current_rgba = decoded
+        self._render_preview()
+        self.export_button.setEnabled(True)
+        self.status_message.emit(f"Textures / {item.index:04X} — {item.name}")
+
+    def eventFilter(self, watched, event):
+        if (watched is self.image_scroll.viewport() and event.type() == QEvent.Type.Wheel
+                and self._current_rgba is not None):
+            delta = event.angleDelta().y() or event.pixelDelta().y()
+            if delta:
+                self._preview_zoom = max(1 / 16, min(8.0,
+                    self._preview_zoom * 1.25 ** max(-4, min(4, delta / 120))))
+                self._render_preview()
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _render_preview(self):
+        """Scale the current decoded pixels without decoding again or changing exports."""
+        if self._current_rgba is None:
+            return
+        width, height, rgba = self._current_rgba
+        if self.trilinear_check.isChecked():
+            base = PREVIEW_SIZE
+        else:
+            base = max(width, height) * max(1, min(16, PREVIEW_SIZE // max(width, height)))
+        target = max(1, min(2048, round(base * self._preview_zoom)))
+        scale = target / max(width, height)
+        out_w, out_h = max(1, round(width * scale)), max(1, round(height * scale))
         if self.trilinear_check.isChecked():
             from .core.texture_filter import resample
-            scale = PREVIEW_SIZE / max(width, height)
-            out_w, out_h = max(1, round(width * scale)), max(1, round(height * scale))
             pixels = resample(rgba, width, height, out_w, out_h, "trilinear")
-            pixmap = QPixmap.fromImage(QImage(pixels, out_w, out_h, out_w * 4,
-                                              QImage.Format.Format_RGBA8888).copy())
+            image = QImage(pixels, out_w, out_h, out_w * 4, QImage.Format.Format_RGBA8888).copy()
+            pixmap = QPixmap.fromImage(image)
         else:
             image = QImage(rgba, width, height, width * 4, QImage.Format.Format_RGBA8888).copy()
-            zoom = max(1, min(16, PREVIEW_SIZE // max(width, height)))
-            pixmap = QPixmap.fromImage(image).scaled(width * zoom, height * zoom,
+            pixmap = QPixmap.fromImage(image).scaled(out_w, out_h,
                                                      Qt.AspectRatioMode.KeepAspectRatio,
                                                      Qt.TransformationMode.FastTransformation)
         self.image_label.setText("")
         self.image_label.setPixmap(pixmap)
-        self.export_button.setEnabled(True)
-        self.status_message.emit(f"Textures / {item.index:04X} — {item.name}")
+        self.image_label.setMinimumSize(pixmap.size())
 
     def _set_info(self, item) -> None:
         self.name_value.setText(item.name)

@@ -6,24 +6,24 @@ The **Textures** tab browses three banks, with search, usage filters, pixel prev
 |---|---:|---|
 | 25 — Geometry | 6,011 | Display-list usages and actor dynamic slots |
 | 7 — Uncompressed | 993 | Map/prop animation descriptors and associated draw state |
-| 14 — HUD | 167 | Manual format/size selection; HUD draw usages are not yet traced |
+| 14 — HUD | 167 | HUD draw usages are not yet traced; unknown entries remain undecoded |
 
 The ROM stores raw texels without names or format headers. Unknown data cannot be decoded reliably from its byte length alone.
 
 ## Usage
 
-Choose the bank, search a name/ID/user, and select a texture for integer-zoom preview. **Show** filters decoded, undecoded, used, unused and palettes; sorting uses number/name/size. The first visit scans actor, prop and map display lists.
+Choose the bank, search a name/ID/user, and select a texture. Scroll the mouse wheel over the preview to zoom in or out; large previews have scrollbars. Selecting another texture resets the zoom. **Show** filters decoded, undecoded, used, unused and palettes; sorting uses number/name/size. The first visit scans actor, prop and map display lists.
 
-**Manual decode** selects RGBA16/RGBA32, IA4/IA8/IA16 or I4/I8, width/height and row interleaving. This is particularly useful for bank 14; the preview is explicitly unverified. **GUESS** instead tries RGBA16 at 32 texels per row. Neither option establishes the game's format. CI images need usage-derived palettes.
+The format, width, height, odd-row-swap and unreferenced-preview controls are hidden. Preview decoding uses known ROM draw usages; unknown entries remain undecoded. CI images need usage-derived palettes.
 
-**Export PNG** saves the current selected decode, including a manual preview. **Export shown list as PNG files** exports known usage-derived decodes; it does not apply one manual layout to the whole bank. Filenames include the bank, for example `T25_0E64_DK_14_32_32.png`, to avoid collisions.
+**Export PNG** saves the current selected decode at its original resolution. **Export shown list as PNG files** exports known usage-derived decodes; it does not apply one manual layout to the whole bank. Filenames include the bank, for example `T25_0E64_DK_14_32_32.png`, to avoid collisions.
 
 Animation frame selection lives in the Characters and Other models/Levels panels. A frame in this browser is a separate bank entry, linked through its recorded users.
 
 ## Preview filtering
 
-- **Default:** the preview shows exact texels at an integer zoom.
-- **Trilinear filtering:** the preview is scaled to 384 pixels on its longest side. A mip chain of
+- **Default:** nearest-neighbour scaling preserves hard pixel edges; the initial scale uses an integer zoom.
+- **Trilinear filtering:** the preview starts at 384 pixels on its longest side and follows mouse-wheel zoom. A mip chain of
   2×2 averages is built, the two levels around the scale factor are sampled bilinearly, and the
   result is blended between them. This is the same scheme as `GL_LINEAR_MIPMAP_LINEAR`.
 
