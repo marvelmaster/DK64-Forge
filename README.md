@@ -49,10 +49,15 @@ Nothing else needs to be downloaded or set up.
 - The viewport supports orbit, pan and zoom, mesh/skeleton views and animation playback.
 - **Timing**: *Game rate* plays 30 adjusted units per second (observed for DK's Entry 4, a
   diagnostic assumption elsewhere), *Technical* plays one sample per second; the speed slider
-  (0.1x–5.0x) scales both. **Mark Current as Reference** / **Go to Reference** jump back to a clip.
+  (0.1x–5.0x) scales both.
 - **Viewport Debug** contains the view selector and model geometry count. Technical animation
-  details and reference bookmarks are hidden. Long animation and geometry-chunk lists have search fields above them.
+  details and reference bookmarks are hidden. Long animation lists have live search results above them.
   Models initially load at twice the previous camera distance.
+- **Compare clips…** opens two synchronized animation previews. Use **Favorite**, **Only favorites**
+  and **Name / associate selected clip…** to organize clips; personal associations are labelled separately.
+- **Session → Save session… / Open session…** saves selections, poses, cameras and filters.
+  **Remember session on close** restores the last view for that ROM, paused. See
+  [animation workflow and saved sessions](docs/animation-workspace.md) for details.
 - Start directly with a ROM: `.venv\Scripts\python.exe -m dk64_forge --rom C:\path\to\rom.z64`.
 - **File → Export** writes the model, the current animation only (joints + clip, no mesh), or
   model plus animation as glTF. Keep the `.gltf`, `.bin` and any

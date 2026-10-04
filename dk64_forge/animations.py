@@ -213,7 +213,7 @@ def sample_compatible_animation(source, descriptor: AnimationDescriptor, *, proc
     """Reuse the established reader/local builder and origin-centred root math."""
     asset = extract_compatible_asset(source, descriptor)
     bones = len(source.skeleton.bones)
-    channels = 3 * bones
+    channels = 3 * max(b.master_index for b in source.skeleton.bones) + 3
     if descriptor.table11_id == 4 and descriptor.character == "dk":
         times = pipeline.entry4_rootmotion_preview.statically_safe_integer_times(asset)
         records = source.actor.data[source.actor.bone_start:source.actor.bone_start + 25 * 16]

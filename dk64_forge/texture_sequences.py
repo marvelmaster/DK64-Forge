@@ -9,6 +9,9 @@ def sequences(rom, table):
             for image in frames:
                 if row not in result.setdefault(image, []):
                     result[image].append(row)
+    if table == 14:
+        add(range(0x83,0x8F), "HUD animated overlay (code_910A0; timer / 2)", 2)
+        add(range(0x8F,0x9F), "HUD animated overlay (code_910A0; timer / 2)", 2)
     if table == 25:
         for index in range(texture_bank.entry_count(rom, 5)):
             try:

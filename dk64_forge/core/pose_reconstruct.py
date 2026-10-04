@@ -139,10 +139,11 @@ def reconstruct_direct_local_pose_unadjusted(
     expected_bones: int = 25,
 ) -> tuple[DirectBonePose, ...]:
     """Build experimental direct matrices without reading adjustment records."""
-    if len(t5) != expected_bones * 3 or len(t1) != expected_bones * 3:
-        raise ValueError(f"expected {expected_bones * 3} t5 and t1 halfwords")
+    channels = len(t5) // 3
+    if len(t5) != channels * 3 or len(t1) != len(t5) or channels < expected_bones:
+        raise ValueError(f"expected complete t5/t1 channel triples for {expected_bones} bones")
     return _build_direct_local_pose(
-        bone_records, t5, t1, t5, t1, (0,) * expected_bones,
+        bone_records, t5, t1, t5, t1, (0,) * channels,
         quarter_table, expected_bones,
     )
 
@@ -164,7 +165,7 @@ def _build_direct_local_pose(
     for row in range(expected_bones):
         record = bone_records[row * 0x10:(row + 1) * 0x10]
         local_index, master_index = record[1], record[2]
-        if local_index >= expected_bones or master_index >= expected_bones:
+        if local_index >= expected_bones or master_index >= len(post_t5) // 3:
             raise ValueError(f"bone record {row} has out-of-range local/master index")
         if local_index in local_slots:
             raise ValueError(f"duplicate local matrix index {local_index}")
@@ -188,7 +189,7 @@ def _build_direct_local_pose(
             matrix_words=bone_local_matrix_bits(angles, translation_bits,
                                                 scales, quarter_table),
         )
-    if masters != set(range(expected_bones)) or set(local_slots) != set(range(expected_bones)):
+    if set(local_slots) != set(range(expected_bones)) or (len(post_t5) == expected_bones * 3 and masters != set(range(expected_bones))):
         raise ValueError("local/master indices do not cover each expected slot exactly once")
     return tuple(local_slots[index] for index in range(expected_bones))
 

@@ -414,7 +414,19 @@ class ModelBrowserTab(QWidget):
         if self._actor_animations is None or not self._actor_animations.samples or self.clip_combo.currentData() is None:
             return
         points = self._actor_animations.pose(frame + fraction)
-        self.viewport.set_scene_data(points, static_model.marker_skeleton(self._current[1].render))
+        skeleton = self._actor_animations.skeleton_debug(frame + fraction)
+        if self.viewport._skeleton.joint_ids != skeleton.joint_ids or len(self.viewport._skeleton.edge_positions) != len(skeleton.edge_positions):
+            camera = self.viewport._camera
+            self.viewport.set_model_data(self._current[1].render, skeleton)
+            self.viewport._camera = camera
+            if not self._current[1].triangles:
+                self.viewport.focus_points(skeleton.joint_positions)
+        self.viewport.set_scene_data(points, skeleton)
+        if not self._current[1].triangles:
+            self.viewport.set_view_mode(ViewMode.SKELETON)
+            if getattr(self,"_skeleton_focus_pending",False):
+                self.viewport.focus_points(skeleton.joint_positions)
+                self._skeleton_focus_pending=False
         self.viewport.set_vertex_colors(self._actor_animations.colors(frame + fraction))
 
     def _toggle_scene_play(self):
@@ -708,7 +720,7 @@ class ModelBrowserTab(QWidget):
             QGuiApplication.restoreOverrideCursor()
         self.name_value.setText(entry.name)
         self.source_value.setText(entry.name_source)
-        if model is None or model.triangles == 0:
+        if model is None or (model.triangles == 0 and self._actor_animations is None):
             self._current = None
             self.export_button.setEnabled(False)
             self.geometry_value.setText("-")
@@ -716,13 +728,14 @@ class ModelBrowserTab(QWidget):
             self.notes_value.setText(f"Not shown: {error if model is None else 'no triangles'}.")
             return model
         self._current = (entry, model)
-        self.export_button.setEnabled(True)
+        self._skeleton_focus_pending = not model.triangles
+        self.export_button.setEnabled(model.triangles > 0)
         self.geometry_value.setText(f"{model.triangles:,} triangles, {len(model.render.batches)} batches")
-        textured = model.textured_triangles / model.triangles
+        textured = model.textured_triangles / max(1,model.triangles)
         missing = f", {model.missing_textures} not decoded" if model.missing_textures else ""
         self.texture_value.setText(f"{model.textures} images{missing} · {textured:.0%} of triangles textured")
         self.notes_value.setText(", ".join(f"{name}: {count}" for name, count in model.unsupported.items())
-                                 or "-")
+                                 or ("Skeleton-only actor; component meshes are assembled by the game." if not model.triangles else "-"))
         self._show_render(model)
         if entry.kind == KIND_MAP:
             from .level_playback import map_playback
@@ -778,6 +791,13 @@ class ModelBrowserTab(QWidget):
 
     def _show_render(self, model: static_model.StaticModel) -> None:
         skeleton = static_model.marker_skeleton(model.render)
+        skeleton_only = not model.triangles and self._actor_animations is not None
+        if skeleton_only:
+            from .debug_view import PreparedSkeletonDebug
+            bones=self._actor_animations.source.skeleton.bones
+            positions=tuple(b.global_translation for b in bones)
+            edges=tuple(p for b in bones if b.parent_index is not None for p in (positions[b.parent_index],positions[b.index]))
+            skeleton=PreparedSkeletonDebug(tuple(range(len(bones))),positions,edges)
         if self.viewport is None:
             from .viewport import ModelViewport
             self.viewport = ModelViewport(model.render, skeleton)
@@ -789,6 +809,10 @@ class ModelBrowserTab(QWidget):
             self._view_layout.addWidget(self.viewport)
         else:
             self.viewport.set_model_data(model.render, skeleton)
+            self.viewport.set_view_mode(ViewMode.MESH)
+        if skeleton_only:
+            self.viewport.set_view_mode(ViewMode.SKELETON)
+            self.viewport.focus_points(skeleton.joint_positions)
 
     def export_jobs(self, entries=None, *, with_content: bool | None = None):
         """(label, job) pairs exporting each entry as a static GLB (maps optionally with
@@ -801,7 +825,7 @@ class ModelBrowserTab(QWidget):
         def job_for(entry):
             def job(folder: Path):
                 model = LOADERS[entry.kind](self._rom, entry.index, self._cache)
-                if model is None or model.triangles == 0:
+                if model is None or (model.triangles == 0 and self._actor_animations is None):
                     raise ValueError("no decodable geometry")
                 if entry.kind == KIND_MAP and with_content:
                     from dataclasses import replace
@@ -863,7 +887,7 @@ class ModelBrowserTab(QWidget):
     def _filter_clips(self, *_args):
         if self._actor_animations is None:
             return
-        owned = {d.table11_id for d in self._actor_animations.descriptors if d.owned}
+        owned = {d.table11_id for d in self._actor_animations.descriptors if d.owned} | getattr(self.clip_combo, "user_associations", set())
         self.clip_combo.entry_visible = lambda row: row == 0 or self.unassigned_check.isChecked() or self.clip_combo.itemData(row) in owned
         for row in range(1, self.clip_combo.count()):
             hidden = not self.unassigned_check.isChecked() and self.clip_combo.itemData(row) not in owned

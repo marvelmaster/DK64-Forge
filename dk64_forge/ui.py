@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
     """JFG-like left asset browser and right OpenGL viewport per supported character."""
 
     def __init__(self, source, preview: PreviewScene,
-                 on_rom_selected: Callable[[Path], None]) -> None:
+                 on_rom_selected: Callable[[Path], None], *, persist_session=False, state_directory=None) -> None:
         super().__init__()
         self.source = source
         self.preview = preview
@@ -151,6 +151,52 @@ class MainWindow(QMainWindow):
         self.next_shortcut = QShortcut(QKeySequence("Ctrl+Right"), self)
         self.next_shortcut.activated.connect(lambda: self._navigate_animation(1))
         self._select_animation()
+        from .clip_tools import ClipTools
+        directory = Path(state_directory) if state_directory else Path.home() / ".dk64_forge"
+        self._session_path = directory / (source.sha256 + "_session.json")
+        self._session_restore = None
+        self._persist_session = persist_session
+        self._preferences_path = directory / "preferences.json"
+        if persist_session:
+            import json
+            try:
+                preferences=json.loads(self._preferences_path.read_text(encoding="utf-8"))
+                self._persist_session=bool(preferences.get("remember_session",True))
+            except (OSError,ValueError,AttributeError):pass
+        self.clip_tools = ClipTools(self, directory / (source.sha256 + "_clips.json"))
+        menu = self.menuBar().addMenu("Session")
+        menu.addAction("Save session…").triggered.connect(self._save_session)
+        menu.addAction("Open session…").triggered.connect(self._open_session)
+        remember = menu.addAction("Remember session on close")
+        remember.setCheckable(True);remember.setChecked(self._persist_session)
+        remember.toggled.connect(self._remember_session)
+        if self._persist_session and self._session_path.exists():
+            QTimer.singleShot(0,lambda:self._restore_session(self._session_path))
+
+    def _remember_session(self,value):
+        from .workspace_state import write_json
+        self._persist_session=value
+        try:write_json(self._preferences_path,{"remember_session":value})
+        except OSError as exc:self.statusBar().showMessage(f"Could not save preference: {exc}",15000)
+
+    def _save_session(self):
+        from .workspace_state import capture, write_json
+        path,_ = QFileDialog.getSaveFileName(self,"Save viewer session","forge_session.json","JSON (*.json)")
+        if path:
+            try:write_json(path,capture(self))
+            except (OSError,ValueError) as exc:QMessageBox.warning(self,"Session save failed",str(exc))
+
+    def _open_session(self):
+        path,_ = QFileDialog.getOpenFileName(self,"Open viewer session","","JSON (*.json)")
+        if path:self._restore_session(path)
+
+    def _restore_session(self,path):
+        from .workspace_state import read_session, Restore
+        try:
+            data=read_session(path,self.source.sha256)
+            if self._session_restore:self._session_restore.stop("Starting new session restore")
+            self._session_restore=Restore(self,data)
+        except (OSError,ValueError) as exc:self.statusBar().showMessage(str(exc),15000)
 
     def _build_export_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -769,7 +815,10 @@ class MainWindow(QMainWindow):
         self.animation_combo.clear()
         from .animations import descriptor_sort_key
         for descriptor in sorted(self.source.animations, key=descriptor_sort_key):
-            if dk_only and not descriptor.dk_owned:
+            tools=getattr(self,"clip_tools",None)
+            scope=f"character:{self.source.character.key}:{self.source.character.variant}"
+            associated=tools and tools.library.get(scope,descriptor.table11_id).get("associated")
+            if dk_only and not descriptor.dk_owned and not associated:
                 continue
             prefix = "Confirmed · " if descriptor.owned else "Compatible only · "
             self.animation_combo.addItem(prefix + descriptor.label, descriptor.table11_id)
@@ -877,8 +926,11 @@ class MainWindow(QMainWindow):
         self._update_timing_status()
 
     def _navigate_animation(self, offset: int) -> None:
-        self.animation_combo.setCurrentIndex(
-            (self.animation_combo.currentIndex() + offset) % self.animation_combo.count())
+        combo=self.animation_combo
+        rows=[i for i in range(combo.count()) if not combo.view().isRowHidden(i)]
+        if rows:
+            current=rows.index(combo.currentIndex()) if combo.currentIndex() in rows else -1
+            combo.setCurrentIndex(rows[(current+offset)%len(rows)])
 
     def _set_grid_visible(self, visible: bool) -> None:
         self.viewport.set_grid_visible(visible)
@@ -1021,6 +1073,12 @@ class MainWindow(QMainWindow):
             self._show_frame(frame)
 
     def closeEvent(self, event) -> None:
+        if self._persist_session and not self._session_restore:
+            from .workspace_state import capture, write_json
+            try:write_json(self._session_path,capture(self))
+            except (OSError,ValueError) as exc:self.statusBar().showMessage(f"Session save failed: {exc}")
+        if self._session_restore:self._session_restore.stop("Closing")
+        self.clip_tools.close()
         for tab in (self.models_tab, self.levels_tab, self.texture_tab):
             tab._loader.cancel()
             if hasattr(tab, "_content_loader"):
@@ -1077,7 +1135,7 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             QApplication.restoreOverrideCursor()
         session.source = candidate
-        new_window = MainWindow(candidate, preview, show_loaded_rom)
+        new_window = MainWindow(candidate, preview, show_loaded_rom, persist_session=True)
         old = windows[-1]
         windows.append(new_window)
         new_window.show()

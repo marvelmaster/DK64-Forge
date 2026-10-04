@@ -56,7 +56,7 @@ def add_dropdown_search(combos, minimum_items=10):
             with QSignalBlocker(results):
                 results.clear()
                 for row in range(combo.count()):
-                    hidden = needle not in combo.itemText(row).casefold() or not getattr(combo, "entry_visible", lambda r: True)(row)
+                    hidden = needle not in combo.itemText(row).casefold() or not getattr(combo, "entry_visible", lambda r: True)(row) or not getattr(combo, "library_visible", lambda r: True)(row)
                     combo.view().setRowHidden(row, hidden)
                     if not hidden:
                         item = QListWidgetItem(combo.itemText(row))

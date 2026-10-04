@@ -329,8 +329,8 @@ def parse_actor(data: bytes) -> Actor:
         parent, local, master = data[pos:pos + 3]
         move = struct.unpack_from(">fff", data, pos + 4)
         need(all(math.isfinite(v) for v in move), f"nonfinite bone translation {row}")
-        need(local == row, f"bone local index {local} differs from row {row}")
-        need(master < bone_count and master not in masters, f"invalid/duplicate bone master {master}")
+        need(local < bone_count and local not in accumulated, f"invalid/duplicate bone local {local}")
+        need(master < 128 and master not in masters, f"invalid/duplicate bone master {master}")
         masters.add(master)
         if parent == 0xFF:
             parent_move = (0.0, 0.0, 0.0)
@@ -340,6 +340,7 @@ def parse_actor(data: bytes) -> Actor:
         total = tuple(move[i] + parent_move[i] for i in range(3))
         accumulated[local] = total
         bones.append(Bone(parent, local, master, move, total))
+    bones.sort(key=lambda bone: bone.local)
     header = {
         "base_address": f"0x{base:08x}",
         "pointer_array_address": f"0x{be32(data, 4):08x}",

@@ -49,3 +49,5 @@ The Kong body texture `0xE64` remains pixel-identical to the reference decoder. 
 When a ROM descriptor assigns a texture to a sequence, choose that sequence, click a frame in the strip or use **Play texture sequence**. IDs need not be consecutive. Actor-slot playback is a manual preview; map/prop playback uses descriptor timing at 30 ticks/s. The strip shows discrete frames. Unknown formats remain undecoded. See [viewer-expansion.md](viewer-expansion.md).
 
 Table 14 now provides 44 automatic font/overlay decodes. File ranges are read from the ROM font table; formats and atlas dimensions follow actual HUD draw commands. The remaining 123 files are still unknown. Evidence: [level-exploration.md](level-exploration.md).
+
+Table 14 automatically decodes 103 of 167 HUD images using draw-layout evidence. Two overlay sequences (0x83–0x8E and 0x8F–0x9E) appear in the sequence strip. The other 64 entries still lack usable layouts; see [animation-workspace.md](animation-workspace.md).

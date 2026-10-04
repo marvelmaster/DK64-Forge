@@ -51,3 +51,7 @@ The expanded catalog records 91 distinct constant animation calls for 42 exact m
 A complete sample audit validated 98 model/clip pairs, filtered 18 incompatible routes, and found four unsupported skeleton/mesh structures (Toy Monster 0x27, K. Lumsy 0x44, Beanstalk 0x47 and Bananaporter Zipper 0x97). Source names may describe an action/script context rather than a precise movement; the ROM does not provide official clip names. Unknown names and additional model ownership still require source tracing or visual review. They remain explicitly unassigned. Level autoplay continues using the curated movement subset rather than arbitrary attack/defeat scripts.
 
 After the eye/search/catalog changes: 170 application tests and 127 reference tests pass (297 total). Native live-search and Kosha clip-list captures were inspected.
+
+## Follow-up: comparisons, irregular skeletons and sessions
+
+The unsupported-structure audit above describes the earlier checkpoint. The four models now have skeleton support, including animated skeleton-only Toy Monster; K. Lumsy and Beanstalk animate/export, and the Zipper offers 45 compatible clips with ownership still unresolved. HUD coverage has increased to 103 entries, leaving 64 unknown. Clip comparison, personal associations/favorites and session round trips are covered in [animation-workspace.md](animation-workspace.md).

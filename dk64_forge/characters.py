@@ -34,6 +34,7 @@ class CharacterSpec:
     compatible_clips: int
     default_animation: int
     variant: str = "normal"
+    channel_bones: int | None = None
 
     @property
     def is_dk(self) -> bool:
@@ -62,7 +63,7 @@ class CharacterSpec:
 
     @property
     def channels(self) -> int:
-        return 3 * self.bones
+        return 3 * (self.channel_bones or self.bones)
 
 
 DK = CharacterSpec("dk", "Donkey Kong", 3, 3, 0x2, 0, 1, 25, 781, 704, 46, 658, 183, 4)

@@ -22,6 +22,7 @@ class ActorAnimations:
         count = len(sk.bones)
         spec = CharacterSpec("actor", "Actor", entry, entry, 0, 0, -1, count, 0,
                              model.triangles, 0, 0, 0, 0)
+        spec = replace(spec, channel_bones=max(b.master_index for b in sk.bones)+1)
         from .characters import CHARACTERS, INSTRUMENT_ENTRIES, LOW_POLY_ENTRIES
         from . import pipeline
         from .core import anim_code_table
@@ -36,7 +37,9 @@ class ActorAnimations:
         self.source = SimpleNamespace(normalized=rom, actor=actor, skeleton=sk, character=spec)
         self.render = model.render
         self.normals = np.asarray(model.normals)
-        self.joints = np.asarray(model.rigid_joints)
+        self.joints = np.asarray(model.rigid_joints) if model.triangles else np.zeros(len(model.render.positions), dtype=int)
+        if not model.triangles:
+            self.normals = np.zeros((len(model.render.positions),3))
         if len(self.joints) != len(self.render.positions) or any(self.joints >= count):
             raise ValueError("Actor mesh joint assignments exceed skeleton")
         self.inverse_binds = []
@@ -51,7 +54,7 @@ class ActorAnimations:
         records = actor.data[actor.bone_start:actor.bone_start + count * 16]
         quarter = bone_matrix.quarter_table_words_from_rom(rom)
         for index, asset, info in assets:
-            if len(asset) < 20 or animation_census._prefix_layout(asset)["descriptor_output_count"] != count * 3:
+            if len(asset) < 20 or animation_census._prefix_layout(asset)["descriptor_output_count"] != (max(b.master_index for b in sk.bones)+1) * 3:
                 continue
             row = animation_census.analyze_asset(asset, records, quarter, bone_count=count, field_prefix=spec.census_prefix)
             row.update(info, id=index)
@@ -140,8 +143,10 @@ class ActorAnimations:
         from .core.entry4_preview import convert_samples_to_joint_trs
         actor = self.source.actor
         records = actor.data[actor.bone_start:actor.bone_start + len(self.inverse_binds) * 16]
+        records = b"".join(sorted((records[i:i+16] for i in range(0,len(records),16)), key=lambda row:row[1]))
         transforms, _ = convert_samples_to_joint_trs(self.samples, records, allow_constant=True,
-                                                     relative_global_tolerance=4 * 2**-23)
+                                                     relative_global_tolerance=4 * 2**-23,
+                                                     channel_count=self.source.character.channels // 3)
         with TemporaryDirectory(prefix="dk64_actor_") as folder:
             temporary = Path(folder) / "mesh.glb"
             static_model.export_glb(model, temporary, name)
@@ -189,6 +194,10 @@ class ActorAnimations:
                 animation["channels"].append({"sampler": len(animation["samplers"]), "target": {"node": joint + 1, "path": path_name}})
                 animation["samplers"].append({"input": times, "output": output, "interpolation": "LINEAR"})
         doc["animations"] = [animation]
+        if not model.triangles:
+            doc.pop("meshes", None)
+            doc["nodes"][0].pop("mesh", None)
+            doc["nodes"][0].pop("skin", None)
         doc["buffers"][0]["byteLength"] = len(binary)
         text = json.dumps(doc, separators=(",", ":")).encode("utf-8")
         text += b" " * (-len(text) % 4)
@@ -198,6 +207,13 @@ class ActorAnimations:
                                struct.pack("<II", len(text), 0x4E4F534A) + text +
                                struct.pack("<II", len(binary), 0x004E4942) + binary)
         return {"bones": len(matrices), "samples": len(transforms), "triangles": model.triangles}
+
+    def skeleton_debug(self, frame):
+        from .debug_view import PreparedSkeletonDebug
+        positions = tuple(tuple(m[:3,3]) for m in self.matrices(frame))
+        edges = tuple(p for b in self.source.skeleton.bones if b.parent_index is not None
+                      for p in (positions[b.parent_index],positions[b.index]))
+        return PreparedSkeletonDebug(tuple(range(len(positions))),positions,edges)
 
 
 def animation_assets(rom):

@@ -95,9 +95,10 @@ def analyze_asset(asset: bytes, bone_records: bytes,
     """Classify one decompressed entry without any endpoint/wrap assumption.
 
     bone_count/field_prefix select the character skeleton (DK: 25, "dk");
-    the reader must produce 3 outputs per bone for that skeleton.
+    the reader must produce 3 outputs per referenced master scratch group.
+    Physical bone count may be smaller when the master numbering has gaps.
     """
-    outputs = 3 * bone_count
+    outputs = 3 * max(bone_count, max(bone_records[2::16], default=-1) + 1)
     compat_field = f"{field_prefix}_skeleton_compatibility"
     compat_label = field_prefix.upper()
     record: dict = {

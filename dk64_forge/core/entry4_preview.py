@@ -248,6 +248,7 @@ def preview_report(samples: tuple[Entry4Sample, ...]) -> dict[str, object]:
 def convert_samples_to_joint_trs(
     samples: tuple[Entry4Sample, ...], bone_records: bytes,
     *, allow_constant: bool = False, relative_global_tolerance: float = 0.0,
+    channel_count: int | None = None,
 ) -> tuple[tuple[tuple[JointTRS, ...], ...], dict[str, float]]:
     """Use direct parent-relative locals; compare globals to DK64 composition.
 
@@ -258,6 +259,12 @@ def convert_samples_to_joint_trs(
         raise ValueError("expected whole bone records and a nonempty sample sequence")
     if not allow_constant and all(sample.composed_words == samples[0].composed_words for sample in samples):
         raise ValueError("all entry-4 poses are identical")
+    channel_count = bone_count if channel_count is None else channel_count
+    if not bone_count <= channel_count <= 128:
+        raise ValueError("invalid animation channel count")
+    masters = [bone_records[i * 16 + 2] for i in range(bone_count)]
+    if len(set(masters)) != bone_count:
+        raise ValueError("duplicate master channel")
     output: list[tuple[JointTRS, ...]] = []
     previous_rotations: list[tuple[float, float, float, float] | None] = [None] * bone_count
     max_trs_error = max_orthogonality_error = max_global_error = 0.0
@@ -267,7 +274,7 @@ def convert_samples_to_joint_trs(
         row: list[JointTRS] = []
         for bone_index in range(bone_count):
             record = bone_records[bone_index * 16:(bone_index + 1) * 16]
-            if record[1] != bone_index or record[2] >= bone_count:
+            if record[1] != bone_index or record[2] >= channel_count:
                 raise ValueError(f"bone {bone_index} local/master mapping changed")
             parent = record[0]
             if (bone_index == 0 and parent != 0xFF) or (bone_index > 0 and parent >= bone_index):

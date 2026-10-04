@@ -68,12 +68,13 @@ def parse_actor_skeleton(actor: Actor) -> ActorSkeleton:
     children: dict[int, list[int]] = defaultdict(list)
     roots = []
     for index in range(count):
-        offset = actor.bone_start + index * 0x10
+        offset = next(actor.bone_start + row * 0x10 for row in range(count)
+                      if actor.data[actor.bone_start + row * 0x10 + 1] == index)
         parent_raw, local_index, master_index, reserved = actor.data[offset:offset + 4]
         local = struct.unpack_from(">fff", actor.data, offset + 4)
         need(all(math.isfinite(value) for value in local), f"nonfinite local bone offset {index}")
         need(local_index == index, f"bone {index} local index {local_index} does not match row")
-        need(master_index < count, f"bone {index} master index is out of range")
+        need(master_index < 128, f"bone {index} master index is out of range")
         parent = None if parent_raw == 0xFF else parent_raw
         if parent is None:
             roots.append(index)
