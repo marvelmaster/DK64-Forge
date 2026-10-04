@@ -668,14 +668,44 @@ class ModelViewport(QOpenGLWidget):
             self.doneCurrent()
         self.update()
 
+    def _sync_textures(self, old, data, handles):
+        previous = {t.texture_index: t for t in old.textures}
+        current = {t.texture_index: t for t in data.textures}
+        changed = [t for t in data.textures if previous.get(t.texture_index) != t]
+        removed = set(previous) - set(current)
+        deleted = [handles.pop(index) for index in removed if index in handles]
+        if deleted:
+            glDeleteTextures(deleted)
+        if changed:
+            handles.update(self._create_textures(replace(data, textures=tuple(changed)), existing=handles))
+
     def set_textures(self, textures) -> None:
-        self._data = replace(self._data, textures=tuple(textures))
+        self.set_dynamic_render(replace(self._data, textures=tuple(textures)))
+
+    def set_dynamic_render(self, data, *, attachment=False):
+        """Retain geometry buffers and unchanged GPU textures during level playback."""
+        old = self._attachment_data if attachment else self._data
+        if old is None or len(old.positions) != len(data.positions):
+            raise ValueError("Dynamic render topology changed")
+        vertices = self._attachment_vertex_data if attachment else self._vertex_data
+        buffer = self._attachment_vbo if attachment else self._vbo
+        handles = self._attachment_textures if attachment else self._textures
+        uv_changed = old.uvs != data.uvs or old.uvs1 != data.uvs1
+        if uv_changed:
+            vertices[:, 3:5] = np.asarray(data.uvs, dtype=np.float32)
+            vertices[:, 9:11] = np.asarray(data.uvs1 or data.uvs, dtype=np.float32)
         if self._program and not self._failed:
             self.makeCurrent()
-            if self._textures:
-                glDeleteTextures(list(self._textures.values()))
-            self._upload_textures()
+            self._sync_textures(old, data, handles)
+            if uv_changed and buffer:
+                glBindBuffer(GL_ARRAY_BUFFER, buffer)
+                glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.nbytes, vertices)
+                glBindBuffer(GL_ARRAY_BUFFER, 0)
             self.doneCurrent()
+        if attachment:
+            self._attachment_data = data
+        else:
+            self._data = data
         self.update()
 
     def set_attachment_data(self, data: PreparedRenderData | None) -> None:
@@ -737,11 +767,11 @@ class ModelViewport(QOpenGLWidget):
     def _upload_textures(self) -> None:
         self._textures = self._create_textures(self._data)
 
-    def _create_textures(self, data: PreparedRenderData) -> dict[int, int]:
+    def _create_textures(self, data: PreparedRenderData, *, existing=None) -> dict[int, int]:
         handles: dict[int, int] = {}
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
         for texture in data.textures:
-            handle = int(glGenTextures(1))
+            handle = (existing or {}).get(texture.texture_index) or int(glGenTextures(1))
             glBindTexture(GL_TEXTURE_2D, handle)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                             GL_LINEAR_MIPMAP_LINEAR if ModelViewport.trilinear else GL_LINEAR)

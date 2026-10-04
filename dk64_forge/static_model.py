@@ -27,6 +27,7 @@ class StaticModel:
     missing_textures: int
     unsupported: dict
     rigid_joints: tuple[int, ...] = ()
+    texture_sources: tuple = ()
 
 
 class TextureCache:
@@ -139,7 +140,8 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache, *, blends=No
                                 minimum, maximum, tuple(colors), tuple(uvs1))
     textured = sum(1 for t in mesh.textures if t is not None and texture_ids.get(t) is not None)
     return StaticModel(render, mesh.triangle_count, textured, len(textures), len(missing),
-                       mesh.stats.get("unsupported", {}), tuple(joints))
+                       mesh.stats.get("unsupported", {}), tuple(joints),
+                       tuple(source for source, index in texture_ids.items() if index is not None))
 
 
 def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None, track: int | None = None, speed: int = 1, texture_playback: bool = True) -> StaticModel | None:

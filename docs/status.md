@@ -87,10 +87,18 @@ Only the captured interior interval of DK Entry 4 establishes 30 adjusted units/
 
 ## Validation
 
-Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **144 passing tests**, including the native Windows OpenGL checks, for **271 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
+Current application/research checks and visual validation are recorded alongside the implementation. ROM-derived tests and capture artifacts remain local under existing ignore rules. The reference research suite has **127 passing tests**; the application suite has **147 passing tests**, including the native Windows OpenGL checks, for **274 total**. The pre-push review additionally fixed texture border clamping, preservation of ROM mip levels, centroid-cache identity reuse and playback timers continuing after a window closes. Special-move/Tiny-hair contact sheets and native OpenGL previews of the models, level-content and texture panels were inspected. Native captures of billboard quads, animated prop parts and the scrolling map surface were also inspected. No emulator was running for a new game-to-viewer comparison.
 
 Tab details: [models.md](models.md), [textures.md](textures.md), [audio.md](audio.md).
 
 The subsequent runtime-preview implementation and its evidence are detailed in [runtime-preview.md](runtime-preview.md).
 
 A custom jaw-opening preview is available for all five Kongs; zero retains the ROM expression. See [runtime-preview.md](runtime-preview.md).
+
+## Level playback performance (2026-10-04)
+
+Level playback retains map and placed-object geometry, transforms, vertex buffers and GPU texture handles. It updates only changed texture images and procedural surface UVs. Repeated textures are shared; compatible opaque/masked placement batches are combined while blended batches and billboard pivots stay separate.
+
+The local native Windows Japes benchmark with all 507 placements enabled measured approximately 22 FPS over five seconds, versus the 2 FPS reported in the user capture. Before the change, CPU map decoding took 109–118 ms and placement rebuilding 116–118 ms per warmed tick, before GPU uploads. After the change, the isolated native update median was 6.8 ms, with paint/event processing around 12.6 ms. Placed content uses 269 shared textures and 677 batches instead of 1,058 textures and 1,233 batches; GPU texture handles survive playback. These figures describe this machine and viewport, not a guaranteed rate for every map.
+
+Regression checks compare cached frames and scrolling UVs against full decoding and ensure that playback does not decode map geometry or rebuild placements. All 21 maps with texture-animation descriptors accept the cached binding plan; the main seven adventure-map overlays were also exercised. No UI framework migration was needed for this fix.

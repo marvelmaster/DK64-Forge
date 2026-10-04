@@ -65,3 +65,5 @@ Further evidence and preview limitations: [Runtime preview](runtime-preview.md).
 Dropdowns have a search field above them that filters their popup options without changing model or animation IDs. Clear the search to restore all choices. Models load with twice the previous camera distance; mouse-wheel zoom remains available.
 
 The Characters panel hides reference bookmarks and technical animation details (Index, Samples, Domain, Timing, Ownership, Semantic, Prefix, Root, Loop and Context). Viewport Debug retains only View and the overall model geometry count. Source validation and diagnostic metadata remain available in exports and the documentation.
+
+Level playback keeps geometry and placement buffers loaded. Animated texture pixels and effect-7 scrolling UVs update independently; repeated placement textures share GPU storage. The performance measurements are recorded in [status.md](status.md).

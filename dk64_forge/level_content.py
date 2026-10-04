@@ -96,12 +96,22 @@ def placements(rom: bytes, map_id: int):
             (parse_spawners(spawners) if spawners else ()))
 
 
+def texture_signature(texture):
+    return (texture.width, texture.height, texture.rgba, texture.wrap_s, texture.wrap_t, texture.mip_levels)
+
+
 def merge_render(scenes):
+    shared = {}
     positions, uvs, colors, batches, textures, uvs1 = [], [], [], [], [], []
     for scene in scenes:
         first = len(positions)
-        ids = {texture.texture_index: len(textures) + i for i, texture in enumerate(scene.textures)}
-        textures.extend(replace(t, texture_index=ids[t.texture_index]) for t in scene.textures)
+        ids = {}
+        for texture in scene.textures:
+            key = texture_signature(texture)
+            if key not in shared:
+                shared[key] = len(textures)
+                textures.append(replace(texture, texture_index=len(textures)))
+            ids[texture.texture_index] = shared[key]
         positions.extend(scene.positions)
         uvs.extend(scene.uvs)
         uvs1.extend(scene.uvs1 or scene.uvs)
@@ -112,6 +122,21 @@ def merge_render(scenes):
                        for b in scene.batches)
     if not positions:
         return None
+    # Opaque/masked placements sharing material can use one draw call. Keep
+    # blended batches separate for depth sorting and billboards for their pivots.
+    groups = {}
+    for index, batch in enumerate(batches):
+        key = index if batch.alpha_mode == "BLEND" or batch.billboard_center is not None else replace(batch, first_vertex=0, vertex_count=0)
+        groups.setdefault(key, []).append(batch)
+    compact_p, compact_uv, compact_uv1, compact_colors, compact_batches = [], [], [], [], []
+    for group in groups.values():
+        first = len(compact_p)
+        for batch in group:
+            span = slice(batch.first_vertex, batch.first_vertex + batch.vertex_count)
+            compact_p.extend(positions[span]); compact_uv.extend(uvs[span])
+            compact_uv1.extend(uvs1[span]); compact_colors.extend(colors[span])
+        compact_batches.append(replace(group[0], first_vertex=first, vertex_count=len(compact_p)-first))
+    positions, uvs, uvs1, colors, batches = compact_p, compact_uv, compact_uv1, compact_colors, compact_batches
     lo = tuple(min(p[k] for p in positions) for k in range(3))
     hi = tuple(max(p[k] for p in positions) for k in range(3))
     return PreparedRenderData(tuple(positions), tuple(uvs), tuple(batches), tuple(textures), lo, hi, tuple(colors), tuple(uvs1))

@@ -99,6 +99,8 @@ class ModelBrowserTab(QWidget):
         self._actor_animations = None
         self._animation_assets = None
         self._scene_tick = 0
+        self._map_playback = None
+        self._content_playback = None
         self._scene_timer = QTimer(self)
         self._scene_timer.setInterval(33)
         self._scene_timer.timeout.connect(self._advance_scene)
@@ -349,6 +351,20 @@ class ModelBrowserTab(QWidget):
                 self.clip_frame.setValue((self.clip_frame.value() + 1) % len(self._actor_animations.samples))
             return
         self._scene_tick += 1
+        if entry.kind == KIND_MAP:
+            from dataclasses import replace
+            from .level_playback import map_playback
+            if self._map_playback is None:
+                base = static_model.map_model(self._rom, entry.index, self._cache,
+                    chunks=None if self.chunk_combo.currentData() is None else {self.chunk_combo.currentData()})
+                self._map_playback = map_playback(self._rom, entry.index, base, self._cache)
+            render = self._map_playback.render(self._scene_tick)
+            self.viewport.set_dynamic_render(render)
+            self._current = entry, replace(old, render=render)
+            if self._content_playback is not None and self.content_check.isChecked():
+                self._content = self._content_playback.render(self._scene_tick)
+                self.viewport.set_dynamic_render(self._content, attachment=True)
+            return
         model = LOADERS[entry.kind](self._rom, entry.index, self._cache, tick=self._scene_tick,
                                           **({"chunks": None if self.chunk_combo.currentData() is None else {self.chunk_combo.currentData()}} if entry.kind == KIND_MAP else {}))
         if model is not None:
@@ -366,6 +382,7 @@ class ModelBrowserTab(QWidget):
                 self.viewport.set_attachment_data(self._content)
 
     def _level_content_changed(self, *_args):
+        self._content_playback = None
         self._content = None
         self.objects_list.clear()
         if self.viewport is None or self._current is None:
@@ -387,10 +404,14 @@ class ModelBrowserTab(QWidget):
             xyz = ", ".join(f"{v:.1f}" for v in row.position)
             self.objects_list.addItem(f"{row.kind} {row.index}: type {row.type_id:03X}, id {row.object_id}, ({xyz})")
         self.viewport.set_attachment_data(self._content)
+        if self._content is not None:
+            from .level_playback import content_playback
+            self._content_playback = content_playback(self._content, self._content_models, self._cache)
         self.status_message.emit(f"{len(rows)} placed objects/spawns; {len(missing)} shown as markers (no model). "
                                  "Actors use the game's model tables; spawn conditions and scripts are not executed.")
 
     def _texture_frame_changed(self, *_args):
+        self._map_playback = None
         if self._current is None:
             return
         entry, _old = self._current
@@ -449,6 +470,8 @@ class ModelBrowserTab(QWidget):
         self._scene_timer.stop()
         self.scene_play.setText("Play")
         self._scene_tick = 0
+        self._map_playback = None
+        self._content_playback = None
         self._content_models.clear()
         self.chunk_combo.blockSignals(True)
         self.chunk_combo.clear()
