@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-05",
+  "rom_sha256": "b6347d9f1f75d38a88d829b4f80b1acf0d93344170a5fbe9546c484dae416ce3",
+  "banks": {
+    "25": {
+      "entries": 8192,
+      "nonempty": 6011
+    },
+    "7": {
+      "entries": 8192,
+      "nonempty": 993
+    },
+    "14": {
+      "entries": 187,
+      "nonempty": 167
+    }
+  },
+  "decoded_sources": 4562,
+  "unresolved_sources": 2609,
+  "successful_models": 938,
+  "model_failures": 0,
+  "empty_or_unsupported_models": 214,
+  "search": {
+    "edge_comparisons": 14405416,
+    "candidates": 4910,
+    "threshold": 16,
+    "shortlist": 12,
+    "covered_banks": [
+      25,
+      7,
+      14
+    ],
+    "not_a_completeness_proof": true
+  },
+  "review": {
+    "runtime_images": 149,
+    "accepted": 151,
+    "rejected": 209,
+    "unresolved": 4550,
+    "retired_decisions": 46
+  },
+  "orientation": "source_v = render_v; top-first decoder rows, unflipped GPU upload",
+  "validation": "22 focused tests passed, including connected-image session restoration; all 149 runtime layouts checked pixel-for-pixel against decoded sources",
+  "limits": [
+    "Known-format images only; no raw byte-size guesses",
+    "Search and review do not establish mathematical completeness",
+    "4550 active candidates await review; excluded from runtime",
+    "Frame=0 addresses one fixed decoded ROM entry; nonzero requests rejected"
+  ],
+  "application_suite": {
+    "last_full_run": 197,
+    "passed": 195,
+    "skipped": 2,
+    "seconds": 99.853,
+    "current_coverage": 200,
+    "subsequent_focused_run": 22
+  }
+}

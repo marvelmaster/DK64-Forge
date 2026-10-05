@@ -52,4 +52,9 @@ Table 14 automatically decodes 103 of 167 HUD images using draw-layout evidence.
 
 ## Connected textures
 
-The **Connected textures** section links each individual image to supported flat assemblies and actor/prop texture atlases. It joins 0610 + 060F into a complete 64×64 hatch image, and groups Troff's 25 recorded textures into a clearly labelled packed model atlas. Seven established flat layouts and 554 model groups are available in bank 25; no numeric-neighbor stitching is guessed. Browse/search sets, zoom, open source pieces or models, and export PNG plus JSON layout. Sessions restore this section too. See [connected-textures.md](connected-textures.md) for ordering evidence, pixel preservation and limits.
+The **Connected textures** section offers 149 visually reviewed contiguous flat images,
+including multirow layouts and sources from both banks 25 and 7. Artificial model
+atlases and animation-frame strips are excluded. Browse/search images, zoom,
+open individual source parts across banks, and export unchanged PNG pixels plus a
+validated JSON layout. See [connected-textures.md](connected-textures.md) for the
+reproducible search, review counts, source orientation and remaining gaps.

@@ -55,7 +55,7 @@ Nothing else needs to be downloaded or set up.
   Models initially load at twice the previous camera distance.
 - **Compare clips…** opens two synchronized animation previews. Use **Favorite**, **Only favorites**
   and **Name / associate selected clip…** to organize clips; personal associations are labelled separately.
-- **Textures → Connected textures** shows verified assembled images and model texture atlases,
+- **Textures → Connected textures** shows 149 reviewed contiguous flat images,
   with source-piece links, mouse-wheel zoom and PNG/layout export. See [connected textures](docs/connected-textures.md).
 - **Session → Save session… / Open session…** saves selections, poses, cameras and filters.
   **Remember session on close** restores the last view for that ROM, paused. See

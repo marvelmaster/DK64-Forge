@@ -1,4 +1,4 @@
-"""Connected-texture viewer: flat assemblies and explicitly packed model atlases."""
+"""Connected-texture viewer: reviewed contiguous flat images."""
 import json,re
 from pathlib import Path
 from PySide6.QtCore import Qt,QEvent,QSignalBlocker,Signal
@@ -9,12 +9,12 @@ from .core.texture_bank import rgba_png
 from .dropdown_search import add_dropdown_search
 
 class AssemblyPanel(QWidget):
-    open_piece=Signal(int)
+    open_piece=Signal(int,int)
     open_user=Signal(str,int)
     def __init__(self,rom):
         super().__init__();self.rom=rom;self.sets=();self.lookup={};self.image=None;self.current=None;self.rgba=None;self.zoom=1.;self.missing=()
         layout=QVBoxLayout(self)
-        self.browse=QCheckBox('Browse all texture sets in this bank');layout.addWidget(self.browse)
+        self.browse=QCheckBox('Browse all connected images in this bank');layout.addWidget(self.browse)
         self.combo=QComboBox();layout.addWidget(self.combo);add_dropdown_search((self.combo,))
         self.description=QLabel();self.description.setWordWrap(True);layout.addWidget(self.description)
         self.open_model=QPushButton("Open source model / level");self.open_model.setEnabled(False);layout.addWidget(self.open_model)
@@ -25,14 +25,14 @@ class AssemblyPanel(QWidget):
         self.parts=QListWidget();self.parts.setMaximumHeight(120);self.parts.setToolTip('Double-click a piece to open its original texture.');layout.addWidget(self.parts)
         self.export=QPushButton('Export PNG + layout…');self.export.setEnabled(False);layout.addWidget(self.export)
         self.browse.toggled.connect(self.refresh);self.combo.currentIndexChanged.connect(self.select)
-        self.parts.itemDoubleClicked.connect(lambda item:self.open_piece.emit(item.data(Qt.ItemDataRole.UserRole)))
+        self.parts.itemDoubleClicked.connect(lambda item:self.open_piece.emit(*item.data(Qt.ItemDataRole.UserRole)))
         self.export.clicked.connect(self.export_current)
     def configure(self,items,table):
-        self.lookup={i.index:i for i in items};self.sets=assemblies.catalog(items,table);self.image=None;self.refresh()
+        self.lookup={i.index:i for i in items};self.sets=assemblies.catalog(items,table) if items else ();self.table=table;self.image=None;self.refresh()
     def set_image(self,image):
         self.image=image;self.refresh()
     def refresh(self,*args):
-        rows=self.sets if self.browse.isChecked() else assemblies.related(self.sets,self.image)
+        rows=self.sets if self.browse.isChecked() else tuple(a for a in self.sets if any(p.table==self.table and p.image==self.image for p in a.pieces))
         keep=self.combo.currentData()
         with QSignalBlocker(self.combo),QSignalBlocker(self.combo.model()):
             self.combo.clear()
@@ -44,16 +44,16 @@ class AssemblyPanel(QWidget):
         self.rgba=None;self.zoom=1.;self.parts.clear();self.export.setEnabled(False);self.open_model.setEnabled(False)
         self.preview.clear();self.preview.setMinimumSize(0,0)
         if self.current is None:
-            self.description.setText('No verified assembly or model texture set for this image. Use Browse all to explore other sets.')
+            self.description.setText('No reviewed connected image for this texture. Use Browse all to explore verified artwork.')
             return
         s=self.current
         self.open_model.setEnabled(bool(s.users))
-        kind='Assembled image' if s.kind=='assembled' else 'Packed model atlas — these skin pieces do not form one original flat image'
+        kind='Verified connected image'
         self.description.setText(f'{kind} · {s.width} × {s.height} · {len(s.pieces)} parts')
         self.description.setToolTip(s.evidence)
         for p in s.pieces:
-            item=QListWidgetItem(f'{p.image:04X} · {p.width} × {p.height} · position ({p.x}, {p.y})')
-            item.setData(Qt.ItemDataRole.UserRole,p.image);self.parts.addItem(item)
+            item=QListWidgetItem(f'T{p.table} · {p.image:04X} · {p.width} × {p.height} · position ({p.x}, {p.y})')
+            item.setData(Qt.ItemDataRole.UserRole,(p.table,p.image));self.parts.addItem(item)
         if self.isVisible():self.decode()
     def decode(self):
         if self.current is None:return

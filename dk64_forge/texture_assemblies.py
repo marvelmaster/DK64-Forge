@@ -1,10 +1,7 @@
-"""Exact split images and lossless packed atlases of model-used textures.
-
-An atlas is a new packing, not a recovered original sheet. Geometry UVs are
-unchanged; the JSON layout records the source rectangles for consumers.
-"""
+"""Reviewed contiguous artwork only. All source pixels are copied unchanged."""
 from dataclasses import dataclass
-from math import ceil, sqrt
+import json
+from pathlib import Path
 import numpy as np
 from .core import texture_bank
 
@@ -15,6 +12,9 @@ class Piece:
     y: int
     width: int
     height: int
+    table: int = 25
+    frame: int = 0
+    usage: dict | None = None
 
 @dataclass(frozen=True)
 class Assembly:
@@ -28,81 +28,71 @@ class Assembly:
     evidence: str
     users: tuple[str, ...] = ()
 
-# Original assets only; no modified-ROM replacement texture indices.
-SPLITS = (
-    ('ship-hatch','Ship hatch / barrel face',(0x610,0x60F),32,64,
-     'Map 43 shared mesh edge: 0610 right UV edge meets 060F left UV edge.'),
-    ('warp-top','Bananaport pad top',(0xDF9,0xDFA),32,64,
-     'DK64 Randomizer pull_images_from_rom.py: w1_pad_left / w1_pad_right.'),
-    ('chunky-face','Chunky face',(0x273,0x274),32,64,
-     'DK64 Randomizer Holiday.py: face_left / face_right.'),
-    ('tiny-face','Tiny face',(0x276,0x275),32,64,
-     'DK64 Randomizer Holiday.py: face_left / face_right.'),
-    ('lanky-face','Lanky face',(0x277,0x278),32,64,
-     'DK64 Randomizer Holiday.py: face_left / face_right.'),
-    ('diddy-face','Diddy face',(0x279,0x27A),32,64,
-     'DK64 Randomizer Holiday.py: face_left / face_right.'),
-    ('dk-face','Donkey Kong face',(0x27C,0x27B),32,64,
-     'DK64 Randomizer Holiday.py: face_left / face_right.'),
-)
 
 def catalog(items, table):
-    lookup={item.index:item for item in items}
+    """Read the reviewed catalog; common model membership never creates a layout."""
     result=[]
-    if table==25:
-        for key,label,images,width,height,evidence in SPLITS:
-            if all(i in lookup and lookup[i].usage and
-                   (lookup[i].usage.width,lookup[i].usage.height)==(width,height) for i in images):
-                result.append(Assembly(key,label,table,'assembled',width*len(images),height,
-                    tuple(Piece(i,x*width,0,width,height) for x,i in enumerate(images)),evidence,
-                    tuple(user for user in lookup[images[0]].references if all(user in lookup[i].references for i in images))))
-    groups={}
-    for item in items:
-        if item.usage is None:continue
-        for user in item.references:
-            if user.startswith(('actor ','prop ')):
-                groups.setdefault(user,[]).append(item)
-    for user,rows in sorted(groups.items()):
-        if len(rows)<2:continue
-        # Stable source-ID ordering, power-of-two-free shelves and two-pixel gutters.
-        rows=sorted(rows,key=lambda i:i.index)
-        width=max(max(i.usage.width for i in rows)+4,
-                  ceil(sqrt(sum((i.usage.width+2)*(i.usage.height+2) for i in rows))))
-        x=y=2;line=0;pieces=[]
-        for item in rows:
-            w,h=item.usage.width,item.usage.height
-            if x+w+2>width:x=2;y+=line+2;line=0
-            pieces.append(Piece(item.index,x,y,w,h));x+=w+2;line=max(line,h)
-        label=texture_bank.user_display_name(user,{})
-        result.append(Assembly('atlas-'+user.replace(' ','-'),label+' — model texture atlas',table,
-            'atlas',width,y+line+2,tuple(pieces),'Packed from recorded ROM model texture usages; not original flat artwork.',(user,)))
+    records=json.loads(Path(__file__).with_name('data').joinpath('connected_textures.json').read_text(encoding='utf-8'))['images']
+    for row in records:
+        pieces=tuple(Piece(**p) for p in row['pieces'])
+        if table not in {p.table for p in pieces}:continue
+        result.append(Assembly(row['key'],row['name'],pieces[0].table,'assembled',
+            row['width'],row['height'],pieces,row['evidence'],tuple(row.get('users',()))))
     return tuple(result)
+
 
 def related(assemblies, image):
     return tuple(a for a in assemblies if any(p.image==image for p in a.pieces))
 
-def compose(rom, assembly, lookup):
-    if not 0<assembly.width<=8192 or not 0<assembly.height<=8192:
-        raise ValueError('Texture assembly dimensions are too large')
-    pixels=np.zeros((assembly.height,assembly.width,4),dtype=np.uint8);missing=[]
-    for piece in assembly.pieces:
-        if piece.x<0 or piece.y<0 or piece.x+piece.width>assembly.width or piece.y+piece.height>assembly.height:
+
+def validate(assembly):
+    if any(not isinstance(v,int) or isinstance(v,bool) for v in (assembly.width,assembly.height)) or not 0<assembly.width<=8192 or not 0<assembly.height<=8192:
+        raise ValueError('Invalid texture assembly dimensions')
+    if assembly.kind!='assembled' or len(assembly.pieces)<2:
+        raise ValueError('Only contiguous multi-part artwork is supported')
+    coverage=np.zeros((assembly.height,assembly.width),dtype=np.uint8)
+    for p in assembly.pieces:
+        values=(p.image,p.table,p.frame,p.x,p.y,p.width,p.height)
+        if any(not isinstance(v,int) or isinstance(v,bool) for v in values):raise ValueError('Piece fields must be integers')
+        # Each animated source is a separate ROM entry. Frame is currently zero;
+        # reject unsupported frame requests instead of silently exporting frame 0.
+        if p.table not in (7,14,25) or p.image<0 or p.frame!=0:raise ValueError('Invalid source bank, index or frame')
+        if p.width<=0 or p.height<=0 or p.x<0 or p.y<0 or p.x+p.width>assembly.width or p.y+p.height>assembly.height:
             raise ValueError('Texture piece exceeds its assembly')
-        item=lookup.get(piece.image)
-        decoded=texture_bank.decode_item(rom,item) if item else None
-        if decoded is None:
-            if assembly.kind=='assembled':raise ValueError(f'Texture {piece.image:04X} cannot be decoded')
-            missing.append(piece.image)
-            pixels[piece.y:piece.y+piece.height,piece.x:piece.x+piece.width]=(255,0,255,255)
-            continue
+        rect=coverage[p.y:p.y+p.height,p.x:p.x+p.width]
+        if rect.any():raise ValueError('Texture pieces overlap')
+        rect[:]=1
+    if not coverage.all():raise ValueError('Texture assembly has gaps')
+
+
+def compose(rom, assembly, lookup):
+    validate(assembly)
+    pixels=np.empty((assembly.height,assembly.width,4),dtype=np.uint8)
+    for p in assembly.pieces:
+        item=lookup.get((p.table,p.image)) or lookup.get(p.image)
+        if item is not None and item.table!=p.table:item=None
+        if p.usage is not None:
+            descriptor=dict(p.usage)
+            width=descriptor.pop('width',p.width);height=descriptor.pop('height',p.height)
+            if (width,height)!=(p.width,p.height):raise ValueError('Source texture dimensions changed')
+            usage=texture_bank.TextureUsage(width=width,height=height,user='reviewed connected artwork',**descriptor)
+            raw=texture_bank.table_entry(rom,p.table,p.image)
+            palette=texture_bank.table_entry(rom,p.table,usage.palette) if usage.palette is not None else None
+            rgba=texture_bank.decode(raw,usage,palette) if raw else None
+            decoded=(p.width,p.height,rgba) if rgba else None
+        else:
+            decoded=texture_bank.decode_item(rom,item) if item else None
+        if decoded is None:raise ValueError(f'Texture {p.table}:{p.image:04X} cannot be decoded')
         w,h,rgba=decoded
-        if (w,h)!=(piece.width,piece.height):raise ValueError('Source texture dimensions changed')
-        pixels[piece.y:piece.y+h,piece.x:piece.x+w]=np.frombuffer(rgba,dtype=np.uint8).reshape(h,w,4)
-    return assembly.width,assembly.height,pixels.tobytes(),tuple(missing)
+        if (w,h)!=(p.width,p.height) or len(rgba)!=w*h*4:raise ValueError('Source texture dimensions changed')
+        source=np.frombuffer(rgba,dtype=np.uint8).reshape(h,w,4)
+        for y in range(h):pixels[p.y+y,p.x:p.x+w]=source[y]
+    return assembly.width,assembly.height,pixels.tobytes(),()
+
 
 def layout(assembly, missing=()):
-    return dict(version=1,name=assembly.name,kind=assembly.kind,table=assembly.table,
+    validate(assembly)
+    return dict(version=2,key=assembly.key,name=assembly.name,kind=assembly.kind,
         width=assembly.width,height=assembly.height,evidence=assembly.evidence,
         coordinate_origin='top-left; original decoded row order',
-        original_model_uvs_unchanged=True,missing=list(missing),
-        pieces=[dict(image=p.image,x=p.x,y=p.y,width=p.width,height=p.height) for p in assembly.pieces])
+        pieces=[dict(table=p.table,image=p.image,frame=p.frame,x=p.x,y=p.y,width=p.width,height=p.height,usage=p.usage) for p in assembly.pieces])

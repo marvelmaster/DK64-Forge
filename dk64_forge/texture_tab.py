@@ -267,6 +267,10 @@ class TextureTab(QWidget):
         self._refresh_list()
         if self.list_widget.count():
             self.list_widget.setCurrentRow(0)
+        pending=getattr(self,'_pending_assembly_source',None)
+        if pending is not None and pending[0]==self.bank_combo.currentData():
+            self._pending_assembly_source=None
+            self._open_assembly_piece(*pending)
 
     def _bank_changed(self, *_args) -> None:
         if not self.loaded:
@@ -409,7 +413,11 @@ class TextureTab(QWidget):
                 row.setIcon(self._icon(item))
             self._thumbnail_row += 1
 
-    def _open_assembly_piece(self,index):
+    def _open_assembly_piece(self,table,index):
+        if table != self.bank_combo.currentData():
+            self._pending_assembly_source=(table,index)
+            self.bank_combo.setCurrentIndex(self.bank_combo.findData(table))
+            return
         self.show_combo.setCurrentIndex(self.show_combo.findData(SHOW_ALL))
         self.search_edit.setText(f"0x{index:x}")
         if self.list_widget.count():self.list_widget.setCurrentRow(0)
