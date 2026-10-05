@@ -138,9 +138,11 @@ including pixel checks for every catalog image and native search/navigation/expo
 texture descriptors and further panorama review remain open. See
 [connected-textures.md](connected-textures.md) and its machine-readable audit.
 
-Validation for this change: the full application run passed **195 of 197 tests**,
-with two optional skips (99.853 seconds). After adding a connected-image session
-regression, mixed-size search and stable-ID checks and tightening dimension types,
-the focused 22-test suite passed.
-Current application coverage is 200 tests; the previously recorded reference
-suite has 127 tests and was not rerun for this texture-only change.
+Validation refreshed before publication on 2026-10-05: the complete application
+suite ran **200 tests**, with **198 passing and two optional skips** (111.071 seconds).
+The 22 focused connected-texture checks also passed, including every catalog
+image's source-pixel comparison, mixed-size discovery, stable candidate IDs,
+native navigation/export and session restoration. The previously recorded
+reference suite has 127 tests and was not rerun for this texture-only change.
+Current coverage is 200 application checks plus 127 reference checks; the count
+of 327 describes coverage, not one combined fresh test run.

@@ -56,7 +56,11 @@ Nothing else needs to be downloaded or set up.
 - **Compare clips…** opens two synchronized animation previews. Use **Favorite**, **Only favorites**
   and **Name / associate selected clip…** to organize clips; personal associations are labelled separately.
 - **Textures → Connected textures** shows 149 reviewed contiguous flat images,
-  with source-piece links, mouse-wheel zoom and PNG/layout export. See [connected textures](docs/connected-textures.md).
+  including multirow layouts and sources from banks 25 and 7, with source-piece links,
+  mouse-wheel zoom and PNG/layout export. Packed model atlases and animation-frame strips
+  are excluded. The offline search and remaining review work are documented in
+  [connected textures](docs/connected-textures.md), with measured counts in the
+  [discovery audit](docs/connected-texture-audit.json).
 - **Session → Save session… / Open session…** saves selections, poses, cameras and filters.
   **Remember session on close** restores the last view for that ROM, paused. See
   [animation workflow and saved sessions](docs/animation-workspace.md) for details.

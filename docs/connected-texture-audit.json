@@ -48,11 +48,11 @@
     "Frame=0 addresses one fixed decoded ROM entry; nonzero requests rejected"
   ],
   "application_suite": {
-    "last_full_run": 197,
-    "passed": 195,
+    "last_full_run": 200,
+    "passed": 198,
     "skipped": 2,
-    "seconds": 99.853,
+    "seconds": 111.071,
     "current_coverage": 200,
-    "subsequent_focused_run": 22
+    "focused_run": 22
   }
 }

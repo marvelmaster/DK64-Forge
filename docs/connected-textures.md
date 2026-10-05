@@ -117,4 +117,7 @@ noninteger coordinates; a synthetic mixed-size, multirow, cross-bank image check
 row copying. Tests also exclude Troff model skin and known animation siblings.
 Native Qt checks exercised source navigation across banks, live search, correct
 preview selection, session restoration and PNG/layout export. Hatch and pub-sign previews were visually
-inspected. Full-suite results are recorded in [status.md](status.md).
+inspected. Before publication on 2026-10-05, the complete application suite ran
+200 tests: 198 passed and two optional checks were skipped (111.071 seconds).
+The older 127-test reference result is separate and was not rerun. See
+[status.md](status.md) for the validation record.
