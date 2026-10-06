@@ -3,12 +3,20 @@
 * Song names and types: DK64 Randomizer ``randomizer/Lists/Songs.py`` (MIT, COMMUNITY);
   its ``mem_idx`` is the pointer-table-0 index.
 * Fallback song names: the decompilation's ``MUSIC_E`` enum (CC0).
-* Sound-effect names: the decompilation's ``SFX_E`` enum (CC0); it names only the
-  arcade sounds, all other effects keep their number.
-Generated once from those sources; names are labels, not official titles.
+* Exact sound-effect labels: the decompilation's ``SFX_E`` enum; it names only
+  the arcade sounds.
+* Context descriptions: sound calls and narrowly resolvable ID expressions in
+  the decompilation and DK64 Randomizer; these describe usage, not an official
+  effect title.
+* Additional symbolic labels: DK64 Randomizer sound constants (MIT, COMMUNITY).
+* Community filenames: byte-exact PCM matches in the supported US ROM.
+Names and descriptions are labels, not official titles.
 """
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 # table-0 index -> (name, Randomizer song type)
 SONGS: dict[int, tuple[str, str]] = {
@@ -390,6 +398,94 @@ SFX_ENUM: dict[int, str] = {
     84: 'Arcade Jumpman Death',
 }
 
+# sound number -> (context-based description, source call site)
+# These describe when a sound is played, not original Rare sound titles.
+SFX_USAGE_LABELS: dict[int, tuple[str, str]] = {
+    12: ('Thrown-object hard impact / debris pop', 'src/global_asm/code_89250.c:469'),
+    15: ('Thrown-object impact (medium drop)', 'src/global_asm/code_89250.c:513'),
+    16: ('Thrown-object soft landing', 'src/global_asm/code_89250.c:511'),
+    31: ('Bell ding (colored-banana threshold)', 'DK64-Randomizer/base-hack/src/fixes/quality_fixes.c:186'),
+    242: ('Banana Medal reward / Shockwave camera cue', 'src/global_asm/code_89250.c:794; src/critter/code_3340.c:314'),
+    37: ('Big Bug Bash swat cue', 'src/bonus/code_2690.c:1597'),
+    54: ('Army Dillo rolling-rock bounce', 'src/boss/ArmyDillo.c:368'),
+    116: ('High beep / menu option-change cue', 'src/menu/code_3E10.c:1779; src/menu/code_3E10.c:1924'),
+    117: ('Low beep / menu slider step', 'src/menu/code_3E10.c:1173'),
+    138: ('Army Dillo random voice / behavior cue', 'src/global_asm/code_89250.c:789'),
+    139: ('Minecart landing impact', 'src/minecart/code_0.c:316'),
+    161: ('Army Dillo random voice / behavior cue', 'src/global_asm/code_89250.c:789'),
+    152: ('Wrong-password response cue', 'DK64-Randomizer/base-hack/src/misc/file_screen.c:1206'),
+    226: ('Beetle-race action cue', 'src/race/code_1770.c:308'),
+    296: ('Minecart actor proximity cue', 'src/minecart/code_25F0.c:509'),
+    323: ('Minigame success cue', 'src/bonus/code_12A0.c:362; src/critter/code_5110.c:161'),
+    325: ('B. Locker interaction cue', 'src/critter/code_3340.c:157'),
+    327: ('Orange pickup cue', 'DK64-Randomizer/base-hack/src/item rando/item_grab.c:350'),
+    336: ('Guard-caught warning cue', 'DK64-Randomizer/base-hack/src/fixes/guardCatch.c:244'),
+    343: ('Homing-ammo crate pickup cue', 'DK64-Randomizer/base-hack/src/item rando/item_grab.c:330'),
+    391: ('Beetle-race movement cue', 'src/race/code_36B0.c:299'),
+    394: ('Beetle-race collision / bump', 'src/race/code_36B0.c:267'),
+    395: ('Beetle-race opponent launch', 'src/race/code_1770.c:306'),
+    458: ('Bounce / Beetle-race launch cue', 'src/race/code_0.c:236'),
+    459: ('Password accepted / success cue', 'DK64-Randomizer/base-hack/src/misc/file_screen.c:1128'),
+    489: ('Kong damage / reaction voice', 'src/bonus/code_0.c:509; src/boss/KRoolGeneric.c:604'),
+    545: ('Puftoss spawned-projectile cue', 'src/boss/Pufftoss.c:50'),
+    572: ('Menu debug hotkey (crash debugger)', 'src/menu/code_3E10.c:826'),
+    611: ('Film pickup cue', 'DK64-Randomizer/base-hack/src/item rando/item_grab.c:399'),
+    672: ('Colored-banana pickup cue', 'DK64-Randomizer/base-hack/src/item rando/item_grab.c:314'),
+    713: ('Menu selection / confirm', 'src/menu/code_3E10.c:741'),
+    521: ('Beetle-race launch cue (paired with 0x01CA)', 'src/race/code_0.c:237'),
+    174: ('Coin power-up pickup cue', 'DK64-Randomizer/base-hack/src/item rando/item_grab.c:451'),
+    602: ('K. Rool attack projectile cue (DK/Tiny phases)', 'src/boss/KRoolDK.c:188; src/boss/KRoolTiny.c:211'),
+    673: ('Memory puzzle: matched pair', 'src/global_asm/propScripts.c:1821'),
+    674: ('Memory puzzle: mismatched pair', 'src/global_asm/propScripts.c:1836'),
+    738: ('K. Rool Chunky-phase action cue', 'src/boss/KRoolChunky.c:99'),
+    769: ('Minecart actor start cue', 'src/minecart/code_25F0.c:202'),
+    764: ('Fungi Forest Spider boss takeoff cue', 'src/boss/SpiderBoss.c:123'),
+    746: ('Wrinkly Kong appearance cue', 'src/global_asm/propScripts.c:3380'),
+    724: ('K. Rool laugh', 'DK64-Randomizer/base-hack/src/fixes/guardCatch.c:92; DK64-Randomizer/base-hack/src/item rando/ice_trap.c:590'),
+    773: ('Mad Jack shockwave cue', 'src/global_asm/propScripts.c:3166'),
+    956: ('Big Bug Bash fly-hit cue', 'src/bonus/code_2690.c:586'),
+    722: ('Big Bug Bash fly-disappear cue', 'src/bonus/code_2690.c:1413'),
+    711: ('Orange / Lime projectile impact', 'src/global_asm/code_89250.c:509'),
+
+}
+
+# Symbolic names used by the community DK64 Randomizer. Keep these distinct
+# from decomp call-site descriptions and the arcade SFX_E enum.
+SFX_RANDOMIZER_LABELS: dict[int, tuple[str, str]] = {
+    22: ('Splat', 'DK64-Randomizer/base-hack/include/vars.h:27'),
+    31: ('Bell', 'DK64-Randomizer/base-hack/include/vars.h:9'),
+    116: ('Beep high', 'DK64-Randomizer/base-hack/include/vars.h:15'),
+    117: ('Beep low', 'DK64-Randomizer/base-hack/include/vars.h:16'),
+    143: ('Timer tock', 'DK64-Randomizer/base-hack/include/vars.h:19'),
+    152: ('Wrong', 'DK64-Randomizer/base-hack/include/vars.h:11'),
+    170: ('Quack', 'DK64-Randomizer/base-hack/include/vars.h:24'),
+    171: ('Matching sound', 'DK64-Randomizer/base-hack/include/vars.h:22'),
+    197: ('Chunky fall-too-far', 'DK64-Randomizer/base-hack/include/vars.h:20'),
+    230: ('Take warp', 'DK64-Randomizer/base-hack/include/vars.h:26'),
+    234: ('Fire', 'DK64-Randomizer/base-hack/include/vars.h:21'),
+    336: ('Uh-oh', 'DK64-Randomizer/base-hack/include/vars.h:8'),
+    343: ('Ammo pickup', 'DK64-Randomizer/base-hack/include/vars.h:13'),
+    441: ('Camera pull', 'DK64-Randomizer/base-hack/include/vars.h:23'),
+    458: ('Bounce', 'DK64-Randomizer/base-hack/include/vars.h:18'),
+    459: ('Success', 'DK64-Randomizer/base-hack/src/misc/file_screen.c:1128'),
+    465: ('Coin', 'DK64-Randomizer/base-hack/include/vars.h:14'),
+    530: ('Burp', 'DK64-Randomizer/base-hack/include/vars.h:28'),
+    532: ('Potion', 'DK64-Randomizer/base-hack/include/vars.h:12'),
+    572: ('Okay', 'DK64-Randomizer/base-hack/include/vars.h:7'),
+    601: ('Feed me', 'DK64-Randomizer/base-hack/include/vars.h:17'),
+    612: ('Tag warp', 'DK64-Randomizer/base-hack/include/vars.h:25'),
+    672: ('Banana', 'DK64-Randomizer/base-hack/include/vars.h:6; DK64-Randomizer/base-hack/src/instances/tag_anywhere.c:828'),
+    724: ('K. Rool laugh', 'DK64-Randomizer/base-hack/src/fixes/guardCatch.c:92; DK64-Randomizer/base-hack/src/item rando/ice_trap.c:590'),
+    796: ('K. Lumsy', 'DK64-Randomizer/base-hack/include/vars.h:10'),
+}
+
+# Curated source filenames matched byte-for-byte to decoded ROM samples.
+# Runtime game IDs are one-based; the JSON separately records bank_index.
+_SOUND_CATALOG = json.loads(
+    (Path(__file__).resolve().parents[1] / "data" / "sound_names.json").read_text(encoding="utf-8")
+)
+SFX_ARCHIVE_LABELS = {entry["sound_id"]: entry for entry in _SOUND_CATALOG["entries"]}
+
 
 def song_name(index: int) -> str:
     if index in SONGS:
@@ -410,8 +506,34 @@ def song_type(index: int) -> str:
 
 
 def sfx_label(index: int) -> str:
-    return SFX_ENUM.get(index, "") if index else ""
+    if index in SFX_ENUM:
+        return SFX_ENUM[index]
+    randomizer = SFX_RANDOMIZER_LABELS.get(index)
+    if randomizer:
+        return randomizer[0]
+    usage = SFX_USAGE_LABELS.get(index)
+    if usage:
+        return usage[0]
+    entry = SFX_ARCHIVE_LABELS.get(index)
+    return entry["label"] if entry else ""
 
 
 def sfx_note(index: int) -> str:
-    return "decompilation SFX_E enum (COMMUNITY)" if sfx_label(index) else "no name in any source"
+    notes = []
+    if index in SFX_ENUM:
+        notes.append("decompilation SFX_E enum (COMMUNITY; exact enum label)")
+    usage = SFX_USAGE_LABELS.get(index)
+    if usage:
+        notes.append(f"Context inferred from source call site ({usage[1]}); not an official sound title")
+    randomizer = SFX_RANDOMIZER_LABELS.get(index)
+    if randomizer:
+        notes.append(f"DK64 Randomizer community label ({randomizer[1]}); not an official sound title")
+    entry = SFX_ARCHIVE_LABELS.get(index)
+    if entry:
+        notes.append(
+            f"Community description: {entry['source_label']} ({_SOUND_CATALOG['source_page']}, "
+            f"comment {_SOUND_CATALOG['source_comment_date']}); decoded PCM matches exactly. "
+            f"Archive member: {entry['member']}; bank index {entry['bank_index']}. "
+            "Wording/speaker attribution is not independently verified; not an official title."
+        )
+    return "; ".join(notes) if notes else "no label found in checked sources"

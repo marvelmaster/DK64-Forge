@@ -58,3 +58,7 @@ atlases and animation-frame strips are excluded. Browse/search images, zoom,
 open individual source parts across banks, and export unchanged PNG pixels plus a
 validated JSON layout. See [connected-textures.md](connected-textures.md) for the
 reproducible search, review counts, source orientation and remaining gaps.
+Both texture previews have a **Rotate preview 180°** checkbox below the image.
+It affects only the preview; PNG and layout exports preserve the source orientation.
+In each preview, **Trilinear filtering** sits immediately above the rotation checkbox
+and smooths scaled previews. Both settings affect display only, not exported pixels.

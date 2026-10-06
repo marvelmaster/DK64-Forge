@@ -22,6 +22,14 @@ class AssemblyPanel(QWidget):
         self.preview=QLabel('Select a texture to see its connected parts.');self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setWidget(self.preview);self.scroll.viewport().installEventFilter(self)
         layout.addWidget(self.scroll,1)
+        self.trilinear_check=QCheckBox('Trilinear filtering (smooth, mipmapped preview)')
+        self.trilinear_check.setToolTip('Smooths the preview while scaling it; PNG exports keep the original pixels.')
+        self.trilinear_check.toggled.connect(self.render)
+        layout.addWidget(self.trilinear_check)
+        self.rotate_preview_check=QCheckBox('Rotate preview 180°')
+        self.rotate_preview_check.setToolTip('Rotate the preview only; PNG exports keep the original orientation.')
+        self.rotate_preview_check.toggled.connect(self.render)
+        layout.addWidget(self.rotate_preview_check)
         self.parts=QListWidget();self.parts.setMaximumHeight(120);self.parts.setToolTip('Double-click a piece to open its original texture.');layout.addWidget(self.parts)
         self.export=QPushButton('Export PNG + layout…');self.export.setEnabled(False);layout.addWidget(self.export)
         self.browse.toggled.connect(self.refresh);self.combo.currentIndexChanged.connect(self.select)
@@ -67,9 +75,21 @@ class AssemblyPanel(QWidget):
         if self.rgba is None:self.decode()
     def render(self):
         if self.rgba is None:return
-        w,h,pixels=self.rgba;image=QImage(pixels,w,h,w*4,QImage.Format.Format_RGBA8888).copy()
+        w,h,pixels=self.rgba
         scale=max(1,384//max(w,h))*self.zoom
-        pix=QPixmap.fromImage(image).scaled(max(1,min(4096,round(w*scale))),max(1,min(4096,round(h*scale))),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.FastTransformation)
+        if self.trilinear_check.isChecked():
+            from .core.texture_filter import resample
+            target=max(1,min(4096,round(384*self.zoom)))
+            scale=target/max(w,h)
+            out_w,out_h=max(1,round(w*scale)),max(1,round(h*scale))
+            filtered=resample(pixels,w,h,out_w,out_h,'trilinear')
+            image=QImage(filtered,out_w,out_h,out_w*4,QImage.Format.Format_RGBA8888).copy()
+            if self.rotate_preview_check.isChecked():image=image.mirrored(True,True)
+            pix=QPixmap.fromImage(image)
+        else:
+            image=QImage(pixels,w,h,w*4,QImage.Format.Format_RGBA8888).copy()
+            if self.rotate_preview_check.isChecked():image=image.mirrored(True,True)
+            pix=QPixmap.fromImage(image).scaled(max(1,min(4096,round(w*scale))),max(1,min(4096,round(h*scale))),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.FastTransformation)
         self.preview.setPixmap(pix);self.preview.setMinimumSize(pix.size())
     def eventFilter(self,watched,event):
         if watched is self.scroll.viewport() and event.type()==QEvent.Type.Wheel and self.rgba:

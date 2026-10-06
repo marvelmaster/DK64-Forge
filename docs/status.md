@@ -1,6 +1,26 @@
 # Project status and open work
 
-**Updated 2026-10-05.** The JFG feature-parity milestone is complete. The subsequent content/material expansion described below is implemented. Forge remains an experimental DK64 US revision-0 viewer/exporter; the four requested areas are substantially expanded, but are not fully runtime-faithful.
+**Updated 2026-10-07.** The JFG feature-parity milestone is complete. The subsequent content/material expansion described below is implemented. Forge remains an experimental DK64 US revision-0 viewer/exporter; the four requested areas are substantially expanded, but are not fully runtime-faithful.
+
+## Latest updates (2026-10-07)
+
+- Audio: 746 previously unlabelled IDs gained sourced community descriptions
+  (671 distinct PCM samples); 920 of 1,126 playable IDs now have labels, while
+  206 remain unnamed. Every accepted archive sample matches the ROM byte-for-byte.
+  Ambiguous source names and unreliable wording are excluded. Source wording,
+  identity fingerprints, exclusions and reproducible tooling are documented in
+  [audio.md](audio.md).
+- Sound playback now maps game ID `n` to bank index `n - 1`; ID 0 is a non-playable
+  no-sound entry. The former offset could associate a name with the next sample.
+- Texture and connected-image previews offer trilinear filtering followed by a
+  180-degree rotation checkbox. Exports retain original pixels/orientation;
+  sessions restore the rotation setting. See [textures.md](textures.md) and
+  [connected-textures.md](connected-textures.md).
+- The audio module's import-order startup regression is fixed. Full UI import,
+  41 focused catalog/audio/texture-assembly/workspace tests passed (30.510 seconds,
+  offscreen Qt); catalog regeneration was byte-identical. Earlier full-suite
+  validation records below retain their
+  original dates and are not presented as a fresh full-suite run.
 
 ## Supported features
 
@@ -15,7 +35,7 @@
 | Animation workflow | Two synchronized clip previews; favorites and personal names/associations scoped to each model/variant and ROM; recovered ownership remains separate |
 | Sessions | Manual JSON save/open and optional automatic restoration; cameras, poses, selections, filters and texture states; restoration ends paused |
 | Tiny hair | Optional source-derived procedural diagnostic preview/export; disabled by default because world motion and collision-anchor inputs are approximated |
-| Audio | 174 songs with ROM reverb settings, 1,126 SFX, WAV/MP3 export |
+| Audio | 174 songs with ROM reverb settings, 1,126 playable SFX, 920 sourced sound labels, correct one-based sound IDs, WAV/MP3 export |
 
 Normal-model counts from the current ROM descriptors:
 

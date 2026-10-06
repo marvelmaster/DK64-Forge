@@ -3,11 +3,13 @@
 In **Textures**, open **Connected textures** beside **Individual texture**.
 The selected source texture shows its reviewed assemblies. **Browse all connected
 images in this bank** exposes the bank catalog with live search. Select a search
-result to change the preview. Mouse-wheel zoom uses nearest-neighbor scaling;
+result to change the preview. Mouse-wheel zoom uses nearest-neighbor scaling by
+default. The **Trilinear filtering** checkbox smooths scaled previews;
+**Rotate preview 180°** directly below it flips the preview without changing exports.
 double-click a source part to open its original texture, including across banks.
 **Export PNG + layout…** saves the original-resolution RGBA image and a version-2
 JSON sidecar containing each part's bank, index, frame, dimensions and position.
-Sessions preserve the selected image, search, browse state and zoom.
+Sessions preserve the selected image, search, browse state, zoom and rotation toggle.
 
 Only contiguous flat artwork is included. The earlier 554 automatically packed
 actor/prop atlases have been removed: shared model membership does not prove one

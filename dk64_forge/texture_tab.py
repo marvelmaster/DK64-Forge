@@ -176,6 +176,9 @@ class TextureTab(QWidget):
         self.image_scroll.viewport().installEventFilter(self)
         self.image_label.setToolTip("Scroll the mouse wheel to zoom in or out.")
         layout.addWidget(self.image_scroll, stretch=1)
+        self.rotate_preview_check = QCheckBox("Rotate preview 180°")
+        self.rotate_preview_check.setToolTip("Rotate the preview only; exported textures keep their original orientation.")
+        self.rotate_preview_check.toggled.connect(lambda _on: self._render_preview())
         self.usage_list = QListWidget()
         self.usage_list.setMaximumHeight(100)
         self.usage_list.setToolTip("Double-click to open the model or level using this texture")
@@ -220,7 +223,8 @@ class TextureTab(QWidget):
                                         "(preview only; exports keep the original pixels).")
         self.export_button = QPushButton("Export PNG...")
         self.export_all_button = QPushButton("Export all shown as PNG...")
-        for widget in (self.trilinear_check, self.guess_check, self.export_button, self.export_all_button):
+        for widget in (self.trilinear_check, self.rotate_preview_check, self.guess_check,
+                       self.export_button, self.export_all_button):
             layout.addWidget(widget)
         self.guess_check.hide()
         self.export_button.setEnabled(False)
@@ -510,9 +514,13 @@ class TextureTab(QWidget):
             from .core.texture_filter import resample
             pixels = resample(rgba, width, height, out_w, out_h, "trilinear")
             image = QImage(pixels, out_w, out_h, out_w * 4, QImage.Format.Format_RGBA8888).copy()
+            if self.rotate_preview_check.isChecked():
+                image = image.mirrored(True, True)
             pixmap = QPixmap.fromImage(image)
         else:
             image = QImage(rgba, width, height, width * 4, QImage.Format.Format_RGBA8888).copy()
+            if self.rotate_preview_check.isChecked():
+                image = image.mirrored(True, True)
             pixmap = QPixmap.fromImage(image).scaled(out_w, out_h,
                                                      Qt.AspectRatioMode.KeepAspectRatio,
                                                      Qt.TransformationMode.FastTransformation)

@@ -18,10 +18,9 @@ The control files are compressed with the loader's mode 2 (``func_dk64_boot_8000
 a 13-bit window (see :func:`lzss_decompress`). Both decompress to a standard single-bank
 ``ALBankFile`` ('B1'); the samples are VADPCM and stay uncompressed in the ROM.
 
-A sound effect number is the index into the sound bank's single instrument (1,126
-sounds); the arcade sound effects named in the decompilation's ``SFX_E`` enum match this
-(LIKELY for the rest). The ROM has no per-effect pitch/volume index like Jet Force Gemini,
-so effects play at their sample's own pitch and volume.
+Sound IDs 1..1126 address soundArray[soundnum - 1]; ID zero means no sound.
+This is verified in n_sndplayer.c, func_global_asm_80737638. The ROM has no
+per-effect pitch/volume index like Jet Force Gemini; callers set these parameters.
 
 Bank parsing and the VADPCM decoder are adapted from MIT-licensed
 jfg_forge.core.audio_rom (Copyright (c) 2026 Marvelmaster).
@@ -251,7 +250,10 @@ def load_audio(rom: bytes) -> AudioRom:
     music = parse_bank(lzss_decompress(rom[slice(*MUSIC_CTL)]), rom[slice(*MUSIC_TBL)])
     sfx = parse_bank(lzss_decompress(rom[slice(*SFX_CTL)]), rom[slice(*SFX_TBL)])
     sounds = [sound for instrument in sfx.instruments for sound in instrument.sounds]
-    effects = tuple(SoundEffect(index, index) for index in range(len(sounds)))
+    # n_sndplayer.c: func_global_asm_80737638 skips zero and reads soundArray[soundnum - 1].
+    effects = (SoundEffect(0, -1),) + tuple(
+        SoundEffect(index + 1, index) for index in range(len(sounds))
+    )
     songs = []
     for song_id in range(texture_bank.entry_count(rom, SONG_TABLE)):
         data = texture_bank.table_entry(rom, SONG_TABLE, song_id) or b""

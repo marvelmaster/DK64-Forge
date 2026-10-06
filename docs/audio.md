@@ -20,10 +20,96 @@ The sound bank has **1,126 sound effects**. **Play when selected** is on by defa
 
 ## Names
 
-The ROM stores no audio names.
+The ROM stores no audio names. Song names come from the DK64 Randomizer song list
+(MIT, COMMUNITY), with the decompilation's `MUSIC_E` enum as fallback.
 
-- **Song names** come from the DK64 Randomizer song list (MIT, COMMUNITY), e.g. `Jungle Japes (Starting Area)`. Its `mem_idx` is the table-0 index. The decompilation's `MUSIC_E` enum is the fallback.
-- **Sound effects** keep their number. Only the arcade sounds have names, from the decompilation's `SFX_E` enum.
+### Sound-name research (2026-10-07)
+
+Forge now has descriptions for **920 of 1,126 playable sound IDs**; **206 remain
+unnamed**. ID 0 is the no-sound sentinel and is excluded from those totals.
+Compared with the previous local catalog (199 labelled IDs including zero),
+**746 previously unlabelled IDs now have sourced descriptions**, representing
+**671 distinct decoded samples**. This is not a claim to have recovered official
+Rare titles or independently identified every speaker.
+
+The new source is the hand-renamed WAV archive linked in the **2024-10-17 comment**
+on [The Sounds Resource's DK64 sound collection](https://sounds.spriters-resource.com/nintendo_64/donkeykong64/asset/402582/):
+[community archive](https://files.catbox.moe/dobjw9.zip).
+The source describes its own naming as informal. Forge preserves every accepted
+source filename and marks its wording and speaker attribution as community
+information, not independently verified. Display formatting only separates
+existing prefixes and variant numbers; it does not invent trigger names.
+
+Results of matching the entire archive:
+
+- **981 WAVs**: all match decoded ROM PCM byte-for-byte (SHA-256), with zero
+  unmatched files. Matching uses signed 16-bit mono sample values, not filenames,
+  guessed ordering, sample duration, or perceptual similarity.
+- **912 sound IDs / 809 distinct samples** accepted into `dk64_forge/data/sound_names.json`.
+- **206 bank entries** excluded from this import because identical PCM has multiple
+  different filenames. Forge does not select an arbitrary name for these cases.
+- **8 further bank entries** excluded for unreliable source wording (jokes, an empty
+  description, or an unsupported actor-credit claim). All decisions are recorded.
+- Multiple sound IDs may share one sample, while envelopes, pitch, WAV sample rate,
+  and playback context differ. A matched name describes the sample, not necessarily
+  the full in-game effect or its trigger.
+
+Existing decompilation enum labels and Randomizer symbolic names take priority,
+followed by the 45 retained source-context descriptions, then the matched archive
+names. The name-source panel includes the archive member and matching method.
+Earlier generic additions such as `Actor action cue` were removed from the name
+catalog. Earlier waveform aliases were also removed: they had been computed with
+an incorrect game-ID offset and did not substantiate their named associations.
+The old unverified `Doink` ID claim was removed rather than carried forward.
+
+### Correct sound-ID mapping
+
+The game uses **IDs 1..1126**, which access bank indices **0..1125**. ID **0** means
+no sound. This is explicit in decompilation
+`src/global_asm/audio/n_sndplayer.c`, `func_global_asm_80737638`:
+`soundArray[soundnum - 1]` inside the `soundnum != 0` branch.
+Forge previously treated game IDs as zero-based bank indices, causing names to
+refer to the next sample. Playback now uses the correct mapping, including the
+last sample and the non-playable zero entry. Existing exported files are not
+renamed; their old numeric IDs may reflect the previous offset.
+
+Independent anchors agree: `Okay` is game ID **572 / 0x23C**, bank index **571 /
+0x23B**, and matches `dkokay.wav`; `Get out` is game ID **418 / 0x1A2**, bank
+index **417 / 0x1A1**, and matches `aztecgetout.wav`.
+
+### Reproduce and verify
+
+The source archive, PCM caches and ROM remain local and are not distributed.
+Only names, provenance and fingerprints are included in the repository.
+
+```powershell
+python -m tools.build_sound_names local/roms/dk64_us.n64 local_output/sound-research/community.zip local_output/sound-research/rebuilt_names.json
+python -m unittest tools.test_sound_names
+```
+
+The builder reads WAV members without extracting the ZIP. It records the archive
+and normalized-ROM SHA-256, original filename, PCM SHA-256, source sample count,
+source WAV rate, bank index and game ID. Rejected groups are retained for future
+review. The catalog is bundled metadata; browsing sounds requires no network or
+archive access.
+
+Tests check every imported entry against both its source WAV and the ROM, unique
+IDs, exclusions, the known anchors, first/last sound playback and the zero sentinel.
+The local archive/ROM tests skip explicitly when their inputs are unavailable.
+
+### Startup regression and validation
+
+A follow-up import-order edit briefly prevented Forge from starting:
+`SyntaxError: from __future__ imports must occur at the beginning of the file`.
+`audio_names.py` now places `from __future__ import annotations` immediately
+below its module docstring, before standard-library imports. The complete
+`dk64_forge.ui` import was verified after the fix, in addition to the five
+catalog checks and six existing audio tests (all eleven passed).
+Catalog regeneration from the local ROM/archive also produced a byte-identical
+JSON file. A final focused run of catalog, audio, texture-assembly and workspace tests
+passed all 41 checks in 30.510 seconds, with Qt using its offscreen platform.
+These results verify imports, data and the tested UI/session paths, not a full
+interactive playthrough of the application.
 
 ## Export
 
@@ -61,7 +147,7 @@ The ROM layout is VERIFIED from the decompilation (CC0):
   - Each channel's controller 91 splits its sound between dry and effect with the library's equal-power curve.
   - At boot the game selects the **stereo** effect (`func_global_asm_80737C20(4)` and `func_global_asm_80737CF4(0, 4)`): one delay line per side. The left result goes to the left output at 0.7071 (`n_alFxPull`), the right result to the right output at 1.0 (`func_global_asm_8073FD90`).
   - The mono variant (sound mode 1) is implemented as well. It sums both sides at 0.5 and scales the section gains by 1.4142.
-- A sound-effect number is an index into the sound bank's single instrument (LIKELY). The arcade code plays its `SFX_E` numbers this way.
+- A sound-effect number is one-based: game ID `n` reads bank index `n - 1`; zero means no sound (verified in `func_global_asm_80737638`).
 
 The sequence decoder, the song renderer, the export and this tab's layout are adapted from JFG Forge (MIT). Jet Force Gemini uses the same libultra audio formats.
 
