@@ -39,7 +39,7 @@ def browser_state(tab):
     return dict(entry=[current.kind,current.index] if current else None,search=tab.search_edit.text(),
         clip_search=tab.clip_combo.search_edit.text() if hasattr(tab.clip_combo,"search_edit") else "",
         kind=tab.kind_combo.currentData(),objects=tab.object_search.text(),category=tab.object_kind.currentData(),
-        content=tab.content_check.isChecked(),night=tab.night_check.isChecked(),fog=tab.fog_check.isChecked(),
+        content=tab.content_check.isChecked(),
         selected=[list(i.data(Qt.ItemDataRole.UserRole)) for i in tab.objects_list.selectedItems()],
         clip=tab.clip_combo.currentData(),frame=tab.clip_frame.value(),tick=tab._scene_tick,
         interpolate=tab.interpolate_check.isChecked(),unassigned=tab.unassigned_check.isChecked(),
@@ -111,7 +111,6 @@ class Restore:
             if hasattr(tab.clip_combo,"search_edit"):tab.clip_combo.search_edit.setText(str(state.get("clip_search","")))
             tab.clip_frame.setValue(int(state.get("frame",0)))
             combo_value(tab.kind_combo,state.get("kind"));tab.search_edit.setText(str(state.get("search","")))
-            tab.night_check.setChecked(bool(state.get("night")));tab.fog_check.setChecked(bool(state.get("fog")))
             tab.content_check.setChecked(bool(state.get("content")))
             self.stage+=1
             return

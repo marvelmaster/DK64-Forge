@@ -27,14 +27,17 @@ In Levels, Ctrl/Shift-select object rows and choose **Export selected objects** 
 
 ## Rendering
 
+The ROM-fog checkbox was removed on 2026-10-07; the historical fog experiment
+below is no longer exposed in the viewer.
+
 - Actor preview normals now follow the sampled pose, including placement rotation for level actors. Unlit/baked vertex colours are preserved. The key light remains a preview light, not reconstructed game RSP light state.
-- Map fog reads header byte 8 bit 0 (8062F050). 80659110 supplies black or Aztec RGB 138/82/22, and projected-depth limits 990/999. Fog is opt-in: the distant overview camera makes the original depth range very dense. Free-camera projection and broad scene application differ from the game's per-pass fog/render-mode state.
+- Historical fog research: map header byte 8 bit 0 (8062F050) and 80659110 supply black or Aztec RGB 138/82/22, with projected-depth limits 990/999. The viewer fog option was removed on 2026-10-07; free-camera projection and broad scene application differed from the game's per-pass fog/render-mode state.
 - Procedural effect 4 adds the IA8 two-tile surface from Table 7 image 0x3E0 with independent scroll rates -5/-2, following 8063CF3C/8063D1D8. It is present in maps 34 and 176. Its combiner preserves translucent alpha. Effect 7 remains supported. Effects 2/3 and exact blender/coverage are still unresolved.
 - Conservative sphere/frustum rejection skips offscreen static batches, including rotation-safe billboard bounds. Moving actor overlays are retained conservatively rather than culled with rest-pose bounds. This is not portal or occlusion visibility.
 
 ## Loading and textures
 
-Model selection, placement preparation and texture-bank scanning run in background jobs, serialized within each loader with an activity bar and stage messages. A newer selection invalidates older results, and closing the window cancels delivery. GL uploads and Qt widgets remain on the GUI thread. The initial lightweight model catalog and explicit manual clip sampling still run synchronously.
+Model selection, placement preparation and texture-bank scanning run in background jobs, serialized within each loader with an activity bar and stage messages. A newer selection invalidates older results, and closing the window cancels delivery. GL uploads and Qt widgets remain on the GUI thread. The initial lightweight model catalog still loads synchronously. Character and actor clip changes now sample in background workers, reuse model data and cached clips, and cancel superseded requests; see [animation-workspace.md](animation-workspace.md).
 
 The model browser keeps a 12-entry decoded asset cache; placement assets, decoded textures, scanned texture banks and thumbnails are reused. Short actor cycles are cached for the loaded level. These are in-memory caches scoped to the ROM/window.
 

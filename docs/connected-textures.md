@@ -9,7 +9,8 @@ default. The **Trilinear filtering** checkbox smooths scaled previews;
 double-click a source part to open its original texture, including across banks.
 **Export PNG + layout…** saves the original-resolution RGBA image and a version-2
 JSON sidecar containing each part's bank, index, frame, dimensions and position.
-Sessions preserve the selected image, search, browse state, zoom and rotation toggle.
+Image selection, search, browse state, zoom and rotation stay active within the
+current window. Viewer sessions are no longer saved or restored.
 
 Only contiguous flat artwork is included. The earlier 554 automatically packed
 actor/prop atlases have been removed: shared model membership does not prove one

@@ -68,16 +68,16 @@ class PlacementIndex:
         starts = np.flatnonzero(mask[::3])*3
         if not len(starts):
             return None
-        distances = ray_triangles(origin, direction, points.reshape(-1,3,3)[starts//3])
+        distances = rendered_hits(render, points, origin, direction)[starts//3]
         best = int(np.argmin(distances))
         distance = distances[best]
         if not np.isfinite(distance):
             return None
         # Static level surfaces hide actors behind walls; ignore transparent surfaces.
         if map_render is not None:
-            opaque = [np.asarray(map_render.positions)[b.first_vertex:b.first_vertex+b.vertex_count]
-                      for b in map_render.batches if b.alpha_mode != "BLEND"]
-            if opaque and np.min(ray_triangles(origin, direction, np.concatenate(opaque).reshape(-1,3,3))) < distance-0.1:
+            blockers = rendered_hits(map_render, np.asarray(map_render.positions), origin, direction,
+                                     blockers_only=True)
+            if len(blockers) and np.min(blockers) < distance-0.1:
                 return None
         return self.keys[self.owners[starts[best]]]
 
@@ -93,3 +93,55 @@ def ray_triangles(origin, direction, triangles):
     distance = np.einsum('ij,ij->i',e2,q)*reciprocal
     valid &= (u>=0)&(v>=0)&(u+v<=1)&(distance>=0)
     return np.where(valid,distance,np.inf)
+
+
+def rendered_hits(render, points, origin, direction, *, blockers_only=False):
+    """Respect face culling, depth-writing surfaces and transparent texture holes.
+
+    An invisible back face or alpha-cutout rectangle must not prevent clicking
+    the object visible through it. Sample the source alpha at the ray's UV.
+    """
+    triangles = points.reshape(-1, 3, 3)
+    distances = ray_triangles(origin, direction, triangles)
+    textures = {t.texture_index: t for t in render.textures}
+    for batch in render.batches:
+        first = batch.first_vertex // 3
+        last = first + batch.vertex_count // 3
+        if blockers_only and (batch.alpha_mode == "BLEND" or not batch.depth_write):
+            distances[first:last] = np.inf
+            continue
+        faces = triangles[first:last]
+        if not batch.double_sided:
+            normal = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])
+            distances[first:last][normal @ direction >= 0] = np.inf
+        if batch.alpha_mode not in ("MASK", "BLEND"):
+            continue
+        hits = np.flatnonzero(np.isfinite(distances[first:last])) + first
+        if not len(hits):
+            continue
+        texture = textures.get(batch.texture_index)
+        alpha = np.full(len(hits), batch.fallback_rgba[3], dtype=float)
+        if texture is not None:
+            faces = triangles[hits]
+            edge1, edge2 = faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0]
+            cross = np.cross(direction, edge2)
+            inv_det = 1.0 / np.einsum('ij,ij->i', edge1, cross)
+            relative = origin - faces[:, 0]
+            u = np.einsum('ij,ij->i', relative, cross) * inv_det
+            v = np.cross(relative, edge1) @ direction * inv_det
+            uv = np.asarray(render.uvs).reshape(-1, 3, 2)[hits]
+            sample_uv = uv[:, 0] + u[:, None] * (uv[:, 1] - uv[:, 0]) + v[:, None] * (uv[:, 2] - uv[:, 0])
+            def wrap(values, mode, size):
+                if mode == "CLAMP":
+                    values = np.clip(values, 0, 1)
+                elif mode == "MIRROR":
+                    values = 1 - np.abs(np.mod(values, 2) - 1)
+                else:
+                    values = np.mod(values, 1)
+                return np.minimum(size - 1, np.floor(values * size).astype(int))
+            x = wrap(sample_uv[:, 0], texture.wrap_s, texture.width)
+            y = wrap(sample_uv[:, 1], texture.wrap_t, texture.height)
+            rgba = np.frombuffer(texture.rgba, dtype=np.uint8).reshape(texture.height, texture.width, 4)
+            alpha *= rgba[y, x, 3] / 255.0
+        distances[hits[alpha < (0.5 if batch.alpha_mode == "MASK" else 1/255)]] = np.inf
+    return distances

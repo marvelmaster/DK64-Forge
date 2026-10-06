@@ -32,7 +32,8 @@ K. Lumsy supports 37 bones referencing 39 scratch groups; Beanstalk supports its
 clip ownership remains unresolved. Toy Monster shows and exports its animated
 12-bone skeleton, since its actor asset has no triangles. Assembly of its separate
 component meshes remains open. See [animation-workspace.md](animation-workspace.md)
-for details and session save/restore controls.
+for details. The ROM file dialog remembers the last successfully loaded folder;
+viewer-session save/restore controls have been removed.
 
 ## Levels
 
@@ -47,7 +48,7 @@ Map playback selects texture frames using each descriptor's ticks-per-frame, wit
 | Setup actors | behaviour → `D_global_asm_8074E8B0` | row scale × 0.15 |
 | Character spawners | enemy value → `D_global_asm_8075EB80` | byte × 5 / 255 × 0.15 (`func_global_asm_80726744`) |
 
-Both are drawn at their 12-bit y rotation, in rest pose with their first texture frames. Entries whose definition has no model (controllers, effect spawners) and props without geometry stay markers. Play animates curated source-confirmed Beaver, Zinger and Klaptrap clips. Spawn conditions and scripts are not executed. **Fungi Forest night spawns** applies the three enemy substitutions from `807278C0` on map 48. Other spawn conditions and actor scripts remain unresolved.
+Both are drawn at their 12-bit y rotation, in rest pose with their first texture frames. Entries whose definition has no model (controllers, effect spawners) and props without geometry stay markers. Play animates curated source-confirmed Beaver, Zinger and Klaptrap clips. Spawn conditions and scripts are not executed. The Fungi Forest night-spawn toggle has been removed; the viewer uses the standard spawn set. Other spawn conditions and actor scripts remain unresolved.
 
 **Map geometry is drawn at 1/3 scale**, as the map loader `func_global_asm_80650ECC` does with `guScale(1/3)`, so maps and placements share world units. Map GLB exports are in these world units.
 
@@ -88,7 +89,7 @@ Other models and Levels request rendering about 60 times per second. Their anima
 
 ## Current-view workflow and responsiveness
 
-Ctrl/Shift-select rows in the level object list to export only those objects at the current tick. Models and placement loading run in background jobs. The texture browser links directly to models/maps. Map fog and procedural effect 4 supplement effect 7; offscreen static batches are conservatively culled. See [viewer-expansion.md](viewer-expansion.md) for evidence, tests and remaining rendering limits.
+Ctrl/Shift-select rows in the level object list to export only those objects at the current tick. Models and placement loading run in background jobs. The texture browser links directly to models/maps. Procedural effect 4 supplements effect 7; the ROM-fog control has been removed; offscreen static batches are conservatively culled. See [viewer-expansion.md](viewer-expansion.md) for evidence, tests and remaining rendering limits.
 
 Actor meshes start with baked vertex colours unless their display lists enable lighting explicitly. Treating those RGBA bytes as normals previously made enemies such as Klump appear white. Colours now survive both static and animated previews. Placement loading uses a separate cancellable worker from map loading, so toggling the content checkbox during selection cannot cancel the requested map.
 

@@ -1030,7 +1030,7 @@ class ModelViewport(QOpenGLWidget):
         current = event.position().toPoint()
         if hasattr(self, "_click_origin") and (current-self._click_origin).manhattanLength() > 4:
             self._pointer_dragged = True
-        if self._last_pointer is not None:
+        if self._last_pointer is not None and getattr(self, "_pointer_dragged", False):
             delta = current - self._last_pointer
             if event.buttons() & Qt.MouseButton.LeftButton:
                 self._camera.orbit(delta.x(), delta.y())

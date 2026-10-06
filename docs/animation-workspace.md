@@ -1,4 +1,4 @@
-# Animation workflow and saved sessions
+# Animation workflow
 
 ## Compare and organize clips
 
@@ -47,26 +47,71 @@ large enough for the source load. Dimensions are not selected from byte lengths.
 The remaining **64** images still lack usable draw-layout evidence. Usage rows
 identify the routine/context; labels are derived descriptions, not official names.
 
-## Sessions
+## ROM folder preference
 
-**Session → Save session… / Open session…** writes and reads a JSON session. It
-contains the ROM fingerprint, active tab, character/model/level selection, selected
-clips and stored pose frames, mouth opening, eye/clothing states, camera positions,
-interpolation and timing controls, search/filter settings, selected level objects,
-level tick, texture bank/image and preview zoom. Favorite filters are restored;
-personal clip names themselves live in the separate clip library.
+As of 2026-10-07 the Session menu, manual save/open controls and automatic
+session save/restore are removed. Forge starts with the default view for the
+loaded ROM. Existing session files are not loaded or rewritten.
 
-**Remember session on close** is on by default in normal application launches and
-restores the last session for that ROM at the next launch. This preference persists.
-Automatic sessions and clip libraries live in `%USERPROFILE%\.dk64_forge`.
-Manual session files can be stored elsewhere. No ROM bytes are included.
+**File → Load ROM…** uses Qt's native Windows file dialog. Its starting folder is
+the directory of the last successfully loaded ROM. This also applies to ROMs
+loaded with `--rom`. The directory persists through `QSettings` (Windows registry
+under `HKEY_CURRENT_USER\Software\Marvelmaster\DK64 Forge`, key
+`last_rom_directory`). Cancelled selections and failed ROM loads do not replace
+it. If the folder no longer exists, the picker falls back to its normal location.
 
-Restoration waits for asynchronous asset/content loads and ends paused, preserving
-the saved pose. Files for another ROM or unsupported session versions are rejected.
-Writes replace the JSON file atomically. Corrupt files produce a status message
-instead of preventing ROM browsing.
+Personal clip names, associations and favorites remain independent and still
+live in `%USERPROFILE%\.dk64_forge` as ROM-scoped clip-library JSON files.
+
+## Faster animation switching (2026-10-07)
+
+Character clip changes reuse the current model's skin, textures, bind matrices and
+material data. They prepare animation channels directly in memory instead of
+exporting/reloading temporary glTF and PNG files for every clip. The path uses the
+same checked pose reader, TRS conversion and float32 channel precision as export.
+Interpolation, mouth offsets and Tiny's optional procedural hair remain supported.
+
+Uncached character and actor clips are prepared on serial background workers.
+The window keeps processing input while loading; another selection cancels obsolete
+sampling between poses, removes queued requests, and ignores stale results.
+Closing the window or changing model cancels pending work. Actor playback intent
+is preserved across switches, including rapid selections; pausing during a load
+prevents its completion from restarting playback.
+
+Characters retain up to 24 clip scenes, with a 64 MiB limit on cached matrix
+payload (one oversized current clip is permitted). Actor models retain up to 12
+sampled clips. The shared model data is not duplicated per character clip. A
+revisited cached clip needs no resampling or glTF work.
+
+Local measurements for DK clips 0..4, in milliseconds:
+
+| Clip | Samples | Former export/reload path | In-memory preparation |
+|---|---:|---:|---:|
+| 0 | 28 | 170 | 49 |
+| 1 | 15 | 153 | 28 |
+| 2 | 15 | 158 | 29 |
+| 3 | 15 | 154 | 27 |
+| 4 | 98 | 347 | 173 |
+
+These are backend preparation measurements on the local machine, excluding
+painting/GPU work. A first visit to a long clip can still need CPU time, but that
+work no longer blocks the Qt event loop. Initial ROM/model loading and explicit
+file exports still use their existing paths.
 
 ## Validation
+
+Animation-switch validation on 2026-10-07: 16 focused switching, ROM-dialog and
+workspace checks passed (18.535 seconds, offscreen Qt). Integer local matrices
+match exported previews exactly for all five Kongs; tests also cover Tiny hair,
+interpolated poses, mouth offsets, event-loop responsiveness, stale-result
+rejection, sampling cancellation, cached revisits and actor browser/comparison.
+
+Validation on 2026-10-07: all four checks in `tools.test_rom_dialog` passed. They
+cover persisted/reopened directory settings, cancellation, first use, missing
+folders and a loaded window with no Session menu or automatic session writes.
+
+The session-related checks below are historical results for the former feature;
+the current application no longer offers session persistence.
 
 Local checks cover independent comparison panes, shared scrubbing and shutdown,
 personal-library persistence/scoping/filtering, session validation and asynchronous

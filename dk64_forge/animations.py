@@ -209,7 +209,7 @@ def extract_compatible_asset(source, descriptor: AnimationDescriptor) -> bytes:
     return asset
 
 
-def sample_compatible_animation(source, descriptor: AnimationDescriptor, *, procedural_hair=False):
+def sample_compatible_animation(source, descriptor: AnimationDescriptor, *, procedural_hair=False, cancelled=None):
     """Reuse the established reader/local builder and origin-centred root math."""
     asset = extract_compatible_asset(source, descriptor)
     bones = len(source.skeleton.bones)
@@ -218,8 +218,16 @@ def sample_compatible_animation(source, descriptor: AnimationDescriptor, *, proc
         times = pipeline.entry4_rootmotion_preview.statically_safe_integer_times(asset)
         records = source.actor.data[source.actor.bone_start:source.actor.bone_start + 25 * 16]
         quarter = pipeline.trace_one_bone.quarter_table_words_from_rom(source.normalized)
-        return pipeline.entry4_rootmotion_preview.sample_interior_sequence(
-            asset, records, quarter, times), records
+        if cancelled is None:
+            return pipeline.entry4_rootmotion_preview.sample_interior_sequence(
+                asset, records, quarter, times), records
+        samples = []
+        for cursor in times:
+            if cancelled():
+                raise RuntimeError("Animation loading superseded")
+            samples.append(pipeline.entry4_rootmotion_preview.sample_entry4(
+                float(cursor), asset=asset, bone_records=records, quarter_table=quarter))
+        return tuple(samples), records
 
     preview = pipeline.entry4_rootmotion_preview
     records = source.actor.data[source.actor.bone_start:source.actor.bone_start + bones * 16]
@@ -230,6 +238,8 @@ def sample_compatible_animation(source, descriptor: AnimationDescriptor, *, proc
         from .core.tiny_hair import TinyHair
         hair = TinyHair(source.normalized, descriptor.table11_id)
     for cursor0 in range(descriptor.safe_first, descriptor.safe_last + 1):
+        if cancelled is not None and cancelled():
+            raise RuntimeError("Animation loading superseded")
         cursor1 = cursor0 + 1
         try:
             reader, bounds = pipeline.reproduce_unk0_reader.reproduce_asset(

@@ -2,7 +2,7 @@
 
 ## Selection and filters
 
-Click a placed object in the level to select it. Ctrl/Shift-click toggles additional selections. Dragging still orbits the camera. A double-click on the level object or its list row focuses the camera; Reset view restores the whole level. The list and selection label show the model/prop name and placement ID. A cyan rectangle marks the selected geometry.
+Enable **Show placed props and actor spawns** (now directly above **Interpolate animation**), then click a placed object in the level to select it. Ctrl/Shift-click toggles additional selections. Dragging still orbits the camera. A double-click on the level object or its list row focuses the camera; Reset view restores the whole level. The list and selection label show the model/prop name and placement ID. A cyan rectangle marks the selected geometry.
 
 The placement search filters names and IDs. All objects, Actors / enemies, Props and Technical markers filter both the list and viewport. Actors / enemies includes named NPCs and other setup actors, not just enemies. Markers represent entries without decodable models. Selection export uses the current visible geometry and pose, including interpolation, instead of rebuilding rest poses. Current-view export respects the filter.
 
@@ -54,4 +54,22 @@ After the eye/search/catalog changes: 170 application tests and 127 reference te
 
 ## Follow-up: comparisons, irregular skeletons and sessions
 
-The unsupported-structure audit above describes the earlier checkpoint. The four models now have skeleton support, including animated skeleton-only Toy Monster; K. Lumsy and Beanstalk animate/export, and the Zipper offers 45 compatible clips with ownership still unresolved. HUD coverage has increased to 103 entries, leaving 64 unknown. Clip comparison, personal associations/favorites and session round trips are covered in [animation-workspace.md](animation-workspace.md).
+The unsupported-structure audit above describes the earlier checkpoint. The four models now have skeleton support, including animated skeleton-only Toy Monster; K. Lumsy and Beanstalk animate/export, and the Zipper offers 45 compatible clips with ownership still unresolved. HUD coverage has increased to 103 entries, leaving 64 unknown. Clip comparison, personal associations/favorites are covered in [animation-workspace.md](animation-workspace.md). Viewer-session controls have since been removed; the ROM picker remembers the last loaded folder.
+
+## Level controls and click selection (2026-10-07)
+
+The Fungi Forest night and ROM-fog checkboxes have been removed. The level preview
+uses the standard spawn set without the optional fog overlay. Hidden session
+utilities no longer reference either removed control.
+
+Picking now respects single-sided face culling, non-depth-writing map surfaces
+and transparent source texture areas (nearest source-alpha lookup at the ray UV).
+Opaque walls still block selection; filtered-out placements cannot be picked.
+Small mouse jitter stays a click without changing the camera; dragging orbits as
+before. Ctrl/Shift-click still toggles multi-selection, and double-click focuses.
+
+All six checks in `tools.test_level_clicks` passed, including real Japes content
+loading, viewport mouse-click delivery, object-list selection and highlight data.
+
+Final pre-push run: all 22 focused animation-switch, ROM-dialog, level-click and
+workspace checks passed in 25.019 seconds; full UI import also passed.

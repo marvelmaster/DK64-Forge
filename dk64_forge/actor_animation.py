@@ -4,6 +4,7 @@ No ownership is inferred from a matching channel count. Every selected clip's
 complete interior interval is validated by the existing animation reader.
 """
 from types import SimpleNamespace
+from collections import OrderedDict
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -77,13 +78,20 @@ class ActorAnimations:
         self.descriptors.sort(key=descriptor_sort_key)
         self.samples = ()
         self._matrix_cache = {}
+        self._sample_cache = OrderedDict()
 
-    def select(self, index):
+    def select(self, index, *, cancelled=None):
         self.samples = ()
         self._matrix_cache = {}
         self.selected_id = None
         descriptor = next(d for d in self.descriptors if d.table11_id == index)
-        self.samples, _ = sample_compatible_animation(self.source, descriptor)
+        if index not in self._sample_cache:
+            samples, _ = sample_compatible_animation(self.source, descriptor, cancelled=cancelled)
+            self._sample_cache[index] = samples
+            if len(self._sample_cache) > 12:
+                self._sample_cache.popitem(last=False)
+        self._sample_cache.move_to_end(index)
+        self.samples = self._sample_cache[index]
         self.selected_id = index
         return descriptor
 

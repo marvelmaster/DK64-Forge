@@ -4,6 +4,27 @@
 
 ## Latest updates (2026-10-07)
 
+Final pre-push validation: full UI import passed and all **22 focused tests**
+(animation switching, ROM picker, level clicks and workspace regressions) passed
+in **25.019 seconds**, with offscreen Qt. Local ROM inputs were available and no
+checks in this run were skipped.
+
+- Levels: placed-content checkbox precedes interpolation. Fungi Forest night and
+  ROM-fog controls removed. Viewport picking respects culled back faces and source
+  texture-alpha holes; click jitter no longer rotates the camera. Six focused
+  checks passed, including clicking a placed object in the loaded Japes viewport
+  and verifying selection/highlighting in its list.
+
+- Animation switching reuses character geometry/materials, prepares uncached clips
+  in background workers and cancels superseded sampling. Characters cache up to
+  24 clips with a 64 MiB matrix-payload limit; actors cache up to 12 sampled clips.
+  Measured DK clip preparation fell from 153–347 ms to 27–173 ms for five clips;
+  see [animation-workspace.md](animation-workspace.md) for scope and measurements.
+
+- Session menu and automatic viewer-state persistence removed. The native ROM
+  picker instead remembers the last successfully loaded ROM directory, including
+  command-line loads and application restarts. Personal clip libraries remain.
+
 - Audio: 746 previously unlabelled IDs gained sourced community descriptions
   (671 distinct PCM samples); 920 of 1,126 playable IDs now have labels, while
   206 remain unnamed. Every accepted archive sample matches the ROM byte-for-byte.
@@ -14,7 +35,7 @@
   no-sound entry. The former offset could associate a name with the next sample.
 - Texture and connected-image previews offer trilinear filtering followed by a
   180-degree rotation checkbox. Exports retain original pixels/orientation;
-  sessions restore the rotation setting. See [textures.md](textures.md) and
+  these preview toggles apply within the current window. See [textures.md](textures.md) and
   [connected-textures.md](connected-textures.md).
 - The audio module's import-order startup regression is fixed. Full UI import,
   41 focused catalog/audio/texture-assembly/workspace tests passed (30.510 seconds,
@@ -30,10 +51,10 @@
 | Animation names | Table-13 ownership plus direct source-call evidence; Tiny Pony Tail Twirl, Chunky Primate Punch, Lanky Orangstand/Baboon Balloon and Diddy Rocketbarrel routes identified |
 | Character materials | ROM combiner mux, primitive/environment colours, one/two-cycle evaluation, shade-only materials, preview directional lighting, ROM RGBA16 mip levels and separate manual eye/colour selection, mouth opening and automatic Kong blinking |
 | Other models | Static actor/prop viewing and GLB export; confirmed clips first, optional unassigned-clip filter, rigid-joint playback and animated GLB export; embedded prop matrix tracks and animated prop GLB export, billboard quads and prop texture playback/crossfades |
-| Levels | Map geometry at the game's 1/3 map scale with texture-frame playback; setup props placed from ROM records; setup actors and character spawns drawn with the models of the game's definition tables (markers only where no model exists); click selection, double-click focus, named placement/category filters, current-pose selection export and curated enemy animation; procedural effect-7 scrolling surfaces and Fungi night spawns |
+| Levels | Map geometry at the game's 1/3 map scale with texture-frame playback; setup props placed from ROM records; setup actors and character spawns drawn with the models of the game's definition tables (markers only where no model exists); click selection, double-click focus, named placement/category filters, current-pose selection export and curated enemy animation; procedural effect-7 scrolling surfaces |
 | Textures | Banks 25, 7 and 14; usage-derived decoding (including 103 HUD images in bank 14), thumbnail grid, usage links, sequence playback, pixel preview, 149 reviewed flat images (multirow/cross-bank support), strict coverage validation and PNG/layout export |
 | Animation workflow | Two synchronized clip previews; favorites and personal names/associations scoped to each model/variant and ROM; recovered ownership remains separate |
-| Sessions | Manual JSON save/open and optional automatic restoration; cameras, poses, selections, filters and texture states; restoration ends paused |
+| ROM picker | Native file dialog opens in the last successfully loaded ROM folder across restarts; viewer-session save/restore removed |
 | Tiny hair | Optional source-derived procedural diagnostic preview/export; disabled by default because world motion and collision-anchor inputs are approximated |
 | Audio | 174 songs with ROM reverb settings, 1,126 playable SFX, 920 sourced sound labels, correct one-based sound IDs, WAV/MP3 export |
 
@@ -92,7 +113,7 @@ Measure with `experiments/phase1_static_dk/tools/bench_viewport.py` (real OpenGL
 
 ## Viewer expansion (2026-10-04)
 
-Confirmed actor routes and level playback, independent eye/colour controls, current-view and selected-object export, pose-dependent preview lighting, map fog, effect 4, background loading, caches, frustum rejection, texture thumbnails/usage navigation and sequence playback are implemented. Enemy baked colours, independent placement loading and animation-switch playback are corrected; technical model/level controls are hidden. Evidence and practical limits: [viewer-expansion.md](viewer-expansion.md).
+Confirmed actor routes and level playback, independent eye/colour controls, current-view and selected-object export, pose-dependent preview lighting, effect 4, background loading, caches, frustum rejection, texture thumbnails/usage navigation and sequence playback are implemented. Enemy baked colours, independent placement loading and animation-switch playback are corrected; technical model/level controls are hidden. Evidence and practical limits: [viewer-expansion.md](viewer-expansion.md).
 
 ## Level exploration and animation controls (2026-10-04)
 
@@ -106,7 +127,7 @@ Level selection/focus and placement filters, five further confirmed enemy routes
 | N64 rendering | Game-supplied RSP light state; complete TMEM layouts, fixed-point combiner rounding, coverage/dither/blender, per-pass fog state and exact texture-LOD behavior. Preview lighting is a fixed key light. glTF retains RDP state in metadata but displays an approximation. |
 | Dynamic textures | Gameplay facial adjustments, Diddy Rocketbarrel-specific texture handling, other procedural surface effects and exact RDP crossfade behavior. Single-player Kong blinking, prop crossfades and effect-7 scrolling are available. |
 | Models | Prop track triggering, runtime speed/direction/transition state; ownership of further generic actor clips and game timing; exact bongo script timing; Toy Monster component assembly and Zipper clip ownership. Prop matrix playback and source-selected bongo clips are implemented. |
-| Levels | General spawn conditions and actor scripts; procedural effect IDs 2/3; camera-dependent portal visibility and dynamic surface transforms. Billboard quads, effect-7 surfaces, Fungi night substitutions, source prop rotation order and placed texture playback are implemented. |
+| Levels | General spawn conditions and actor scripts; procedural effect IDs 2/3; camera-dependent portal visibility and dynamic surface transforms. Billboard quads, effect-7 surfaces, source prop rotation order and placed texture playback are implemented. The Fungi night and ROM-fog UI options have been removed. |
 | Tiny hair | Actual world speed/heading and collision-anchor movement, exact game float behavior and runtime comparison. The optional preview is diagnostic and must not be treated as bit-exact restoration. |
 | Texture metadata | Usage-derived HUD formats/palettes, unused texture formats and remaining undecodable usages. Table 14 has 103 automatic HUD decodes; 64 entries still require usable draw-use evidence. |
 | Animation runtime | Ordinary AAS adjustments beyond the Tiny diagnostic; transition/blend route; exact game interpolation (optional desktop smoothing is available); per-clip timing/scalars, endpoints and loop semantics. Origin-centered exports omit actor/world placement. |
@@ -137,9 +158,9 @@ The follow-up removes the 33 ms render scheduling limit: a precise 16 ms timer r
 
 The level exploration update adds picking/focus/name filters, optional interpolation, five additional enemy movement routes, embedded prop animation GLB export and 44 HUD texture decodes. See [level-exploration.md](level-exploration.md).
 
-## Animation workflow and sessions (2026-10-04)
+## Animation workflow and sessions (historical checkpoint, 2026-10-04)
 
-Side-by-side clip comparison, model-scoped favorites/personal labels and ROM-bound viewer sessions are implemented. K. Lumsy and Beanstalk animate/export with their irregular skeletons; the Zipper supports 45 compatible clips without claiming ownership. Toy Monster displays and exports its animated skeleton; its component mesh assembly remains open. HUD coverage is now 103/167, with two source-defined overlay sequences. See [animation-workspace.md](animation-workspace.md) for controls, validation and remaining limits.
+At this checkpoint, side-by-side clip comparison, model-scoped favorites/personal labels and ROM-bound viewer sessions were implemented. Viewer sessions were subsequently removed on 2026-10-07; comparison and personal libraries remain. K. Lumsy and Beanstalk animate/export with their irregular skeletons; the Zipper supports 45 compatible clips without claiming ownership. Toy Monster displays and exports its animated skeleton; its component mesh assembly remains open. HUD coverage is now 103/167, with two source-defined overlay sequences. See [animation-workspace.md](animation-workspace.md) for controls, validation and remaining limits.
 
 ## Windows access-violation report (2026-10-04)
 

@@ -16,7 +16,7 @@ from typing import Callable
 
 import numpy as np
 
-from PySide6.QtCore import QElapsedTimer, QSignalBlocker, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, QSettings, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QShortcut, QSurfaceFormat
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
@@ -44,9 +44,22 @@ from .session import (CHARACTER, RomParseError, RomReadError,
 from .viewport import ModelViewport
 
 
+def _rom_dialog_settings() -> QSettings:
+    return QSettings("Marvelmaster", "DK64 Forge")
+
+
+def _remember_rom_directory(path: Path) -> None:
+    settings = _rom_dialog_settings()
+    settings.setValue("last_rom_directory", str(path.resolve().parent))
+    settings.sync()
+
+
 def _select_rom(parent: QWidget) -> Path | None:
+    directory = _rom_dialog_settings().value("last_rom_directory", "", type=str)
+    if not directory or not Path(directory).is_dir():
+        directory = ""
     filename, _filter = QFileDialog.getOpenFileName(
-        parent, "Load Donkey Kong 64 ROM", "",
+        parent, "Load Donkey Kong 64 ROM", directory,
         "Nintendo 64 ROMs (*.n64 *.z64 *.v64);;All files (*)",
     )
     return Path(filename) if filename else None
@@ -85,7 +98,7 @@ class MainWindow(QMainWindow):
     """JFG-like left asset browser and right OpenGL viewport per supported character."""
 
     def __init__(self, source, preview: PreviewScene,
-                 on_rom_selected: Callable[[Path], None], *, persist_session=False, state_directory=None) -> None:
+                 on_rom_selected: Callable[[Path], None], *, state_directory=None) -> None:
         super().__init__()
         self.source = source
         self.preview = preview
@@ -104,6 +117,9 @@ class MainWindow(QMainWindow):
         self._timer = QTimer(self)
         self._timer.setInterval(16)
         self._timer.timeout.connect(self._advance_playback)
+        from .background import Loader
+        self._animation_loader = Loader(self)
+        self._animation_loader.failed.connect(self._animation_preview_failed)
         self._elapsed = QElapsedTimer()
         self.setWindowTitle("DK64 Forge")
         self.resize(1180, 760)
@@ -153,50 +169,7 @@ class MainWindow(QMainWindow):
         self._select_animation()
         from .clip_tools import ClipTools
         directory = Path(state_directory) if state_directory else Path.home() / ".dk64_forge"
-        self._session_path = directory / (source.sha256 + "_session.json")
-        self._session_restore = None
-        self._persist_session = persist_session
-        self._preferences_path = directory / "preferences.json"
-        if persist_session:
-            import json
-            try:
-                preferences=json.loads(self._preferences_path.read_text(encoding="utf-8"))
-                self._persist_session=bool(preferences.get("remember_session",True))
-            except (OSError,ValueError,AttributeError):pass
         self.clip_tools = ClipTools(self, directory / (source.sha256 + "_clips.json"))
-        menu = self.menuBar().addMenu("Session")
-        menu.addAction("Save session…").triggered.connect(self._save_session)
-        menu.addAction("Open session…").triggered.connect(self._open_session)
-        remember = menu.addAction("Remember session on close")
-        remember.setCheckable(True);remember.setChecked(self._persist_session)
-        remember.toggled.connect(self._remember_session)
-        if self._persist_session and self._session_path.exists():
-            QTimer.singleShot(0,lambda:self._restore_session(self._session_path))
-
-    def _remember_session(self,value):
-        from .workspace_state import write_json
-        self._persist_session=value
-        try:write_json(self._preferences_path,{"remember_session":value})
-        except OSError as exc:self.statusBar().showMessage(f"Could not save preference: {exc}",15000)
-
-    def _save_session(self):
-        from .workspace_state import capture, write_json
-        path,_ = QFileDialog.getSaveFileName(self,"Save viewer session","forge_session.json","JSON (*.json)")
-        if path:
-            try:write_json(path,capture(self))
-            except (OSError,ValueError) as exc:QMessageBox.warning(self,"Session save failed",str(exc))
-
-    def _open_session(self):
-        path,_ = QFileDialog.getOpenFileName(self,"Open viewer session","","JSON (*.json)")
-        if path:self._restore_session(path)
-
-    def _restore_session(self,path):
-        from .workspace_state import read_session, Restore
-        try:
-            data=read_session(path,self.source.sha256)
-            if self._session_restore:self._session_restore.stop("Starting new session restore")
-            self._session_restore=Restore(self,data)
-        except (OSError,ValueError) as exc:self.statusBar().showMessage(str(exc),15000)
 
     def _build_export_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -548,10 +521,11 @@ class MainWindow(QMainWindow):
         if (key, variant) == (self.source.character.key, self.source.character.variant):
             return
         self._pause()
+        self._animation_loader.cancel()
         try:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             source = self.source.for_character(key, variant)
-            cache_key = (key, variant, source.character.default_animation)
+            cache_key = (key, variant, source.character.default_animation, False)
             scene = self._preview_cache.get(cache_key) or PreviewScene.from_rom(source)
         except Exception as exc:
             QMessageBox.critical(self, "DK64 Forge character error", str(exc))
@@ -837,28 +811,22 @@ class MainWindow(QMainWindow):
             self._select_animation(self.animation_combo.currentIndex())
 
     def _select_animation(self, _index: int = -1) -> None:
+        self._animation_loader.cancel()
         self._pause()
         animation_id = self.animation_combo.currentData()
         animated = animation_id is not None
         cache_key = (self.source.character.key, self.source.character.variant, animation_id, self.hair_check.isChecked() and self.source.character.key == "tiny")
         if animated and cache_key not in self._preview_cache:
-            try:
-                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-                scene = PreviewScene.from_animation(self.source, animation_id, procedural_hair=cache_key[-1])
-            except Exception as exc:
-                QMessageBox.critical(self, "DK64 Forge animation preview error",
-                                     f"Table-11 entry {animation_id:04X}: {exc}")
-                self.statusBar().showMessage(f"Animation {animation_id:04X} preview failed: {exc}")
-                with QSignalBlocker(self.animation_combo):
-                    old_index = next(i for i in range(self.animation_combo.count())
-                                     if self.animation_combo.itemData(i) == self._selected_animation_id)
-                    self.animation_combo.setCurrentIndex(old_index)
-                return
-            finally:
-                QApplication.restoreOverrideCursor()
-            self._preview_cache[cache_key] = scene
-            if len(self._preview_cache) > 3:
-                self._preview_cache.popitem(last=False)
+            source, base = self.source, self.preview
+            self.play_button.setEnabled(False)
+            self.time_slider.setEnabled(False)
+            self.playback_state_label.setText(f"Loading {animation_id:04X}…")
+            token = self._animation_loader.token + 1
+            self._animation_loader.submit(
+                lambda progress: base.with_animation(source, animation_id, procedural_hair=cache_key[-1],
+                    cancelled=lambda: self._animation_loader.token != token),
+                lambda scene: self._animation_preview_ready(cache_key, scene))
+            return
         if animated:
             self._preview_cache.move_to_end(cache_key)
             self.preview = self._preview_cache[cache_key]
@@ -924,6 +892,28 @@ class MainWindow(QMainWindow):
             self._update_joint_details()
             self._update_root_motion()
         self._update_timing_status()
+
+    def _animation_preview_ready(self, cache_key, scene):
+        self._preview_cache[cache_key] = scene
+        # Clip arrays are private; immutable skin/material data is shared. Bound
+        # both clip count and matrix payload rather than keeping just three clips.
+        def matrix_bytes():
+            return sum(len(p.local_samples) * len(p.inverse_binds) * 16 * 8
+                       for p in self._preview_cache.values())
+        while len(self._preview_cache) > 24 or (len(self._preview_cache) > 1 and matrix_bytes() > 64 * 1024**2):
+            self._preview_cache.popitem(last=False)
+        self._select_animation()
+        if self.tabs.currentWidget() is not self.model_tabs or self.model_tabs.currentIndex() != 0:
+            self._pause()
+
+    def _animation_preview_failed(self, message):
+        animation_id = self.animation_combo.currentData()
+        self.statusBar().showMessage(f"Animation {animation_id:04X} preview failed: {message}", 15000)
+        index = self.animation_combo.findData(self._selected_animation_id)
+        if index >= 0:
+            with QSignalBlocker(self.animation_combo):
+                self.animation_combo.setCurrentIndex(index)
+        self._select_animation()
 
     def _navigate_animation(self, offset: int) -> None:
         combo=self.animation_combo
@@ -1073,14 +1063,12 @@ class MainWindow(QMainWindow):
             self._show_frame(frame)
 
     def closeEvent(self, event) -> None:
-        if self._persist_session and not self._session_restore:
-            from .workspace_state import capture, write_json
-            try:write_json(self._session_path,capture(self))
-            except (OSError,ValueError) as exc:self.statusBar().showMessage(f"Session save failed: {exc}")
-        if self._session_restore:self._session_restore.stop("Closing")
+        self._animation_loader.cancel()
         self.clip_tools.close()
         for tab in (self.models_tab, self.levels_tab, self.texture_tab):
             tab._loader.cancel()
+            if hasattr(tab, "_clip_loader"):
+                tab._clip_loader.cancel()
             if hasattr(tab, "_content_loader"):
                 tab._content_loader.cancel()
         self.texture_tab._thumbnail_timer.stop()
@@ -1135,7 +1123,8 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             QApplication.restoreOverrideCursor()
         session.source = candidate
-        new_window = MainWindow(candidate, preview, show_loaded_rom, persist_session=True)
+        new_window = MainWindow(candidate, preview, show_loaded_rom)
+        _remember_rom_directory(candidate.path)
         old = windows[-1]
         windows.append(new_window)
         new_window.show()

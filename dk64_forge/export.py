@@ -28,29 +28,10 @@ class ExportResult:
     validation: dict
 
 
-def _generic_animation(source: RomSource, descriptor: AnimationDescriptor,
-                       temp: Path, *, procedural_hair=False) -> tuple[Path, dict, int]:
-    """Serialize through the established pose/glTF path, then set diagnostic times."""
-    preview = pipeline.entry4_rootmotion_preview
-    samples, bone_records = sample_compatible_animation(source, descriptor, procedural_hair=procedural_hair)
-    transforms, conversion = preview.convert_samples_to_joint_trs(
-        samples, bone_records, allow_constant=True,
-        relative_global_tolerance=4 * 2**-23)
+def animation_metadata(source, descriptor, *, procedural_hair=False):
+    """Shared evidence/timing metadata for exports and in-memory previews."""
     character = source.character
-    bind = temp / "dk_skeleton_bind.gltf"
-    pipeline.dk_skeleton.export_skinned_gltf(source.mesh, source.skeleton, bind)
-    unretimed = temp / "browser_unretimed.gltf"
-    preview.export_experimental_animation(
-        samples, transforms, unretimed, bind,
-        expected_mesh=(character.vertices, character.triangles, character.bones))
-    doc = json.loads(unretimed.read_text(encoding="utf-8"))
-    blob = bytearray(unretimed.with_suffix(".bin").read_bytes())
-    times = tuple(struct.unpack("<f", struct.pack("<f", i / DIAGNOSTIC_UNITS_PER_SECOND))[0]
-                  for i in range(descriptor.sample_count))
-    if any(b <= a for a, b in zip(times, times[1:])):
-        raise ValueError(f"entry {descriptor.table11_id:04X}: invalid browser key times")
-    pipeline.retime_entry4_preview._write_times(doc, blob, times)
-    metadata = {
+    return {
         "character": character.name,
         "table11_id": descriptor.table11_id,
         "display_label": descriptor.label,
@@ -82,6 +63,31 @@ def _generic_animation(source: RomSource, descriptor: AnimationDescriptor,
         "endpoint_loop_policy": "unknown",
         "runtime_faithful": False,
     }
+
+
+def _generic_animation(source: RomSource, descriptor: AnimationDescriptor,
+                       temp: Path, *, procedural_hair=False) -> tuple[Path, dict, int]:
+    """Serialize through the established pose/glTF path, then set diagnostic times."""
+    preview = pipeline.entry4_rootmotion_preview
+    samples, bone_records = sample_compatible_animation(source, descriptor, procedural_hair=procedural_hair)
+    transforms, conversion = preview.convert_samples_to_joint_trs(
+        samples, bone_records, allow_constant=True,
+        relative_global_tolerance=4 * 2**-23)
+    character = source.character
+    bind = temp / "dk_skeleton_bind.gltf"
+    pipeline.dk_skeleton.export_skinned_gltf(source.mesh, source.skeleton, bind)
+    unretimed = temp / "browser_unretimed.gltf"
+    preview.export_experimental_animation(
+        samples, transforms, unretimed, bind,
+        expected_mesh=(character.vertices, character.triangles, character.bones))
+    doc = json.loads(unretimed.read_text(encoding="utf-8"))
+    blob = bytearray(unretimed.with_suffix(".bin").read_bytes())
+    times = tuple(struct.unpack("<f", struct.pack("<f", i / DIAGNOSTIC_UNITS_PER_SECOND))[0]
+                  for i in range(descriptor.sample_count))
+    if any(b <= a for a, b in zip(times, times[1:])):
+        raise ValueError(f"entry {descriptor.table11_id:04X}: invalid browser key times")
+    pipeline.retime_entry4_preview._write_times(doc, blob, times)
+    metadata = animation_metadata(source, descriptor, procedural_hair=procedural_hair)
     animation = doc["animations"][0]
     animation["name"] = f"table11_{descriptor.table11_id:04X}_ORIGIN_CENTERED_DIAGNOSTIC"
     animation["extras"].update(metadata)

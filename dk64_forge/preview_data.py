@@ -1,9 +1,9 @@
 """DK64 backend adapter for JFG's generic OpenGL viewport contract.
 
-The adapter consumes the already validated origin-centered glTF export. It
-does not decode animation assets or invent a DK64 transform convention.
-Playback displays exact exported interior integer samples at the selected
-diagnostic display rate.
+The canonical skin comes from the validated origin-centered glTF export. Clip
+changes reuse that skin with the same pose reader, validated TRS conversion and
+float32 channel precision, without repeating export/file I/O. Playback displays
+the same interior integer samples at the selected diagnostic display rate.
 """
 
 from dataclasses import dataclass, replace
@@ -196,6 +196,32 @@ class PreviewScene:
             scene = cls._from_gltf(doc, blob, gltf.parent, result.validation, expected_triangles)
             scene.render_data = replace(scene.render_data, textures=scene.texture_frame(source, 0))
             return scene
+
+    def with_animation(self, source, animation_id: int, *, procedural_hair=False, cancelled=None) -> "PreviewScene":
+        """Reuse the canonical skin/materials and prepare only a clip, without file I/O.
+
+        Use the exporter's validated TRS conversion and float32 channel precision,
+        so integer poses and interpolation match the existing glTF preview path.
+        """
+        from .animations import descriptor_for, sample_compatible_animation
+        from .export import animation_metadata
+        from .pipeline import entry4_rootmotion_preview
+
+        descriptor = descriptor_for(source, animation_id)
+        if len(self.inverse_binds) != source.character.bones:
+            raise ValueError("preview skin does not match the selected character")
+        samples, records = sample_compatible_animation(source, descriptor, procedural_hair=procedural_hair,
+                                                       cancelled=cancelled)
+        transforms, conversion = entry4_rootmotion_preview.convert_samples_to_joint_trs(
+            samples, records, allow_constant=True, relative_global_tolerance=4 * 2**-23)
+        f32 = lambda row: np.asarray(row, dtype=np.float32).astype(np.float64)
+        locals_ = tuple(tuple(_matrix(f32(trs.translation), f32(trs.rotation), f32(trs.scale))
+                              for trs in row) for row in transforms)
+        metadata = {**self.metadata,
+                    **animation_metadata(source, descriptor, procedural_hair=procedural_hair),
+                    "samples": len(samples), "time_range": [0.0, (len(samples) - 1) / 30.0],
+                    "conversion": conversion}
+        return replace(self, local_samples=locals_, metadata=metadata, posed_normals=None)
 
     @classmethod
     def _from_gltf(cls, doc: dict, blob: bytes, base: Path, validation: dict,

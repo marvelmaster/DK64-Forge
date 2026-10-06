@@ -118,6 +118,9 @@ class ModelBrowserTab(QWidget):
         self._assets = OrderedDict()
         self._loader = Loader(self)
         self._content_loader = Loader(self)
+        self._clip_loader = Loader(self)
+        self._clip_resume = False
+        self._clip_loader.failed.connect(self.status_message)
         self._content_loader.progress.connect(self.status_message)
         self._content_loader.failed.connect(self._content_failed)
         self._loader.progress.connect(self.status_message)
@@ -222,16 +225,11 @@ class ModelBrowserTab(QWidget):
         self.interpolate_check = QCheckBox("Interpolate animation")
         self.interpolate_check.setToolTip("Optional preview smoothing between stored poses; not reconstructed game interpolation.")
         self.interpolate_check.toggled.connect(self._refresh_interpolation)
-        layout.addWidget(self.interpolate_check)
         self.content_check = QCheckBox("Show placed props and actor spawns")
         self.content_check.setVisible(KIND_MAP in self._kinds)
         self.content_check.toggled.connect(self._load_content_async)
         layout.addWidget(self.content_check)
-        self.night_check = QCheckBox("Fungi Forest night spawns")
-        self.night_check.setToolTip("Source-defined enemy replacements on map 48; other game conditions are unresolved.")
-        self.night_check.setVisible(KIND_MAP in self._kinds)
-        self.night_check.toggled.connect(self._load_content_async)
-        layout.addWidget(self.night_check)
+        layout.addWidget(self.interpolate_check)
         self.chunk_combo = QComboBox()
         self.chunk_combo.addItem("All geometry chunks", None)
         self.chunk_combo.hide()
@@ -268,12 +266,6 @@ class ModelBrowserTab(QWidget):
         self.frame_spin.valueChanged.connect(self._texture_frame_changed)
         layout.addWidget(self.frame_spin)
         self.frame_spin.hide()
-        self.fog_check = QCheckBox("Map fog (ROM settings)")
-        self.fog_check.setChecked(False)
-        self.fog_check.setVisible(KIND_MAP in self._kinds)
-        self.fog_check.setToolTip("Original colour and projected-depth range. Optional: the distant overview camera can make original fog very dense.")
-        self.fog_check.toggled.connect(self._update_fog)
-        layout.addWidget(self.fog_check)
         self.reset_button = QPushButton("Reset view")
         self.export_button = QPushButton("Export current view / pose...")
         self.export_button.setEnabled(False)
@@ -302,6 +294,7 @@ class ModelBrowserTab(QWidget):
 
     def pause(self):
         self._scene_timer.stop()
+        self._clip_resume = False
         self.scene_play.setText("Play")
 
     def _export_actor_clip(self):
@@ -365,10 +358,13 @@ class ModelBrowserTab(QWidget):
             QGuiApplication.restoreOverrideCursor()
 
     def _select_actor_clip(self, *_args):
-        resume = self._scene_timer.isActive()
+        resume = self._scene_timer.isActive() or (self._clip_loader.pending and self._clip_resume)
+        self._clip_loader.cancel()
+        self._clip_resume = resume
         self._scene_timer.stop()
         self.scene_play.setText("Play")
         self.clip_export.setEnabled(False)
+        self.clip_frame.setEnabled(True)
         index = self.clip_combo.currentData()
         self._playback_remainder = 0.0
         if self._current is not None and self._current[0].kind == KIND_PROP:
@@ -386,12 +382,26 @@ class ModelBrowserTab(QWidget):
         if index is None:
             self._show_render(self._current[1])
             return
-        try:
-            descriptor = self._actor_animations.select(index)
-        except Exception as exc:
-            self.status_message.emit(f"Clip rejected by complete interior sampling: {exc}")
-            self.clip_frame.setRange(0, 0)
+        if index not in self._actor_animations._sample_cache:
+            from copy import copy
+            prepared = copy(self._actor_animations)
+            entry = self._current[0]
+            self.clip_frame.setEnabled(False)
+            token = self._clip_loader.token + 1
+            def work(progress):
+                return prepared, prepared.select(index, cancelled=lambda: self._clip_loader.token != token)
+            def ready(result):
+                if self._current is None or self._current[0] != entry or self.clip_combo.currentData() != index:
+                    return
+                self._actor_animations, descriptor = result
+                self._apply_actor_clip(descriptor, self._clip_resume)
+            self._clip_loader.submit(work, ready)
             return
+        descriptor = self._actor_animations.select(index)
+        self._apply_actor_clip(descriptor, resume)
+
+    def _apply_actor_clip(self, descriptor, resume):
+        self.clip_frame.setEnabled(True)
         self.clip_frame.setRange(0, descriptor.sample_count - 1)
         self.clip_frame.setValue(0)
         self._show_actor_frame(0)
@@ -501,7 +511,7 @@ class ModelBrowserTab(QWidget):
             if entry.kind == KIND_MAP and self.content_check.isChecked():
                 from .level_content import content_render
                 self._content, _rows, _missing = content_render(self._rom, entry.index, self._cache,
-                    tick=self._scene_tick, night=self.night_check.isChecked(), models=self._content_models, capture=self._captured)
+                    tick=self._scene_tick, night=False, models=self._content_models, capture=self._captured)
                 self.viewport.set_attachment_data(self._content)
 
     def _prepare_content(self, entry, night, progress):
@@ -536,9 +546,9 @@ class ModelBrowserTab(QWidget):
         entry = self._current[0]
         if entry.kind != KIND_MAP:
             return
-        night = self.night_check.isChecked()
+        night = False
         def ready(result):
-            if self._current and self._current[0] == entry and self.content_check.isChecked() and self.night_check.isChecked() == night:
+            if self._current and self._current[0] == entry and self.content_check.isChecked():
                 self._level_content_changed(prepared=result)
         self._content_loader.submit(lambda progress: self._prepare_content(entry, night, progress), ready)
 
@@ -565,7 +575,7 @@ class ModelBrowserTab(QWidget):
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             if prepared is None:
-                prepared = self._prepare_content(entry, self.night_check.isChecked(), self.status_message.emit)
+                prepared = self._prepare_content(entry, False, self.status_message.emit)
             self._content, rows, missing, self._captured, self._content_playback, self._actor_playback = prepared
         except Exception as exc:
             self.status_message.emit(f"Level contents could not be read: {exc}")
@@ -645,6 +655,7 @@ class ModelBrowserTab(QWidget):
 
     def _select_item(self, item, _previous=None) -> None:
         if item is not None:
+            self._clip_loader.cancel()
             entry = item.data(Qt.ItemDataRole.UserRole)
             self._content_loader.cancel()
             self._clear_content()
@@ -676,6 +687,7 @@ class ModelBrowserTab(QWidget):
         return result
 
     def show_entry(self, entry: BrowserEntry, *, prepared=None) -> static_model.StaticModel | None:
+        self._clip_loader.cancel()
         if prepared is None:
             self._loader.cancel()
         self._content_loader.cancel()
@@ -695,7 +707,6 @@ class ModelBrowserTab(QWidget):
             for chunk in sorted({row[3] for row in map_ranges(data, with_chunk=True)}):
                 self.chunk_combo.addItem(f"Geometry chunk {chunk}", chunk)
         self.chunk_combo.blockSignals(False)
-        self.night_check.setEnabled(entry.kind == KIND_MAP and entry.index == 48)
         self._actor_animations = None
         self.clip_combo.entry_visible = lambda row: True
         self.clip_combo.blockSignals(True)
@@ -740,7 +751,6 @@ class ModelBrowserTab(QWidget):
         if entry.kind == KIND_MAP:
             from .level_playback import map_playback
             self._map_playback = map_playback(self._rom, entry.index, model, self._cache)
-        self._update_fog()
         if self.content_check.isChecked():
             self._load_content_async()
         else:
@@ -765,6 +775,9 @@ class ModelBrowserTab(QWidget):
             if self.clip_combo.view().isRowHidden(index):
                 continue
             self.clip_combo.setCurrentIndex(index)
+            if self._clip_loader.pending:
+                self._clip_resume = True
+                return
             if (self._current[0].kind == KIND_PROP or
                     (self._actor_animations is not None and self._actor_animations.samples)):
                 self._start_scene_playback()
@@ -779,15 +792,6 @@ class ModelBrowserTab(QWidget):
             if texture_animation.prop_animations(data):
                 self._start_scene_playback()
                 self.scene_play.setText("Pause")
-
-    def _update_fog(self):
-        if self.viewport is None or self._current is None:
-            return
-        entry = self._current[0]
-        data = texture_bank.table_entry(self._rom, 1, entry.index) if entry.kind == KIND_MAP else b""
-        enabled = len(data) > 8 and bool(data[8] & 1) and self.fog_check.isChecked()
-        self.viewport.fog = ((138/255, 82/255, 22/255) if entry.index == 38 else (0.,0.,0.)) if enabled else None
-        self.viewport.update()
 
     def _show_render(self, model: static_model.StaticModel) -> None:
         skeleton = static_model.marker_skeleton(model.render)
@@ -830,7 +834,7 @@ class ModelBrowserTab(QWidget):
                 if entry.kind == KIND_MAP and with_content:
                     from dataclasses import replace
                     from . import level_content
-                    content, _rows, _missing = level_content.content_render(self._rom, entry.index, self._cache, night=self.night_check.isChecked())
+                    content, _rows, _missing = level_content.content_render(self._rom, entry.index, self._cache, night=False)
                     if content is not None:
                         render = level_content.merge_render((model.render, content))
                         model = replace(model, render=render, triangles=sum(b.face_count for b in render.batches),

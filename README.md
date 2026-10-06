@@ -61,9 +61,10 @@ Nothing else needs to be downloaded or set up.
   are excluded. The offline search and remaining review work are documented in
   [connected textures](docs/connected-textures.md), with measured counts in the
   [discovery audit](docs/connected-texture-audit.json).
-- **Session → Save session… / Open session…** saves selections, poses, cameras and filters.
-  **Remember session on close** restores the last view for that ROM, paused. See
-  [animation workflow and saved sessions](docs/animation-workspace.md) for details.
+- **File → Load ROM…** opens the native file picker in the folder of the last
+  successfully loaded ROM, including after restarting Forge. Viewer sessions are
+  no longer saved or restored. Favorites and personal clip names remain available;
+  see [animation workflow](docs/animation-workspace.md).
 - Start directly with a ROM: `.venv\Scripts\python.exe -m dk64_forge --rom C:\path\to\rom.z64`.
 - **File → Export** writes the model, the current animation only (joints + clip, no mesh), or
   model plus animation as glTF. Keep the `.gltf`, `.bin` and any
