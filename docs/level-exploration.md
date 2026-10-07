@@ -1,12 +1,54 @@
 # Level exploration and animation — 2026-10-04
 
+## Placement reload fix — 2026-10-07
+
+Returning from **006 Japes Minecart** to **007 Japes** now restores props and
+actors while the placement checkbox stays checked. The shared model cache
+previously contributed texture animation bindings from earlier maps. Prop 0x010
+in Minecart and prop 0x138 in Japes share table-7 frames 41–50 but carry different
+internal texture-usage labels (`prop quad` versus `draw`). Comparing those labels
+as playback state caused an `Ambiguous shared prop texture binding` error and
+aborted the entire placement load; toggling the checkbox hit the same error.
+
+Playback bindings now consider only prop types placed in the current map.
+Equivalent sources/sequences ignore provenance labels and descriptor key/group,
+while differences in decoding, frames, timing or interpolation remain conflicts.
+Four regressions in `tools.test_level_content_reload` cover the actual asynchronous
+007 → 006 → 007 selection, checkbox recovery, rapid selection and semantic binding
+comparison. The Japes test verifies all 507 placement rows and viewport geometry.
+
+A subsequent full-map audit found genuine initial-frame collisions in nine maps
+(including Troff N Scoff, Galleon Lighthouse, Caves Rotating Room and six lobbies).
+Prop textures now retain their animation-sequence identity during scene merging:
+identical initial pixels with different future frames/timing use separate textures.
+Equivalent sequences still share storage. This also prevents an animated prop
+from changing a static prop with identical initial pixels.
+
+All **136 map entries** now pass placement loading and texture-playback setup
+with one accumulating asset cache; 134 contain placements and two have none.
+The fifth reload regression repeats this audit and checks that Lighthouse's two
+identical starting eye textures remain separate and show their correct next frames.
+
+Final pre-push validation: all 35 focused checks passed in 34.783 seconds,
+including these five placement regressions; UI import also passed. Reproduce with
+the local supported ROM and the following command (offscreen Qt is sufficient):
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+$env:PYTHONPATH = Join-Path (Get-Location).Path 'tests'
+python -m unittest tools.test_level_content_reload tools.test_level_clicks tools.test_map_water tools.test_animation_switch tools.test_rom_dialog tests.test_workspace
+```
+
 ## Selection and filters
 
 Enable **Show placed props and actor spawns** (now directly above **Interpolate animation**), then click a placed object in the level to select it. Ctrl/Shift-click toggles additional selections. Dragging still orbits the camera. A double-click on the level object or its list row focuses the camera; Reset view restores the whole level. The list and selection label show the model/prop name and placement ID. A cyan rectangle marks the selected geometry.
 
 The placement search filters names and IDs. All objects, Actors / enemies, Props and Technical markers filter both the list and viewport. Actors / enemies includes named NPCs and other setup actors, not just enemies. Markers represent entries without decodable models. Selection export uses the current visible geometry and pose, including interpolation, instead of rebuilding rest poses. Current-view export respects the filter.
 
-Picking uses current animated triangles and camera-facing billboard geometry. Opaque level triangles block objects behind walls. Texture-alpha holes are not sampled during picking; masked surfaces use their triangle outlines. These are viewer interactions, not game collision.
+Picking uses current animated triangles and camera-facing billboard geometry.
+Opaque level triangles block objects behind walls. Back-face culling, depth-write
+state and transparent source texels are respected; alpha is sampled at the hit UV
+using the nearest source texel. These are viewer interactions, not game collision.
 
 ## Clips and interpolation
 

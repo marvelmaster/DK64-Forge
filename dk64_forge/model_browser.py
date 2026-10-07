@@ -489,7 +489,7 @@ class ModelBrowserTab(QWidget):
                     chunks=None if self.chunk_combo.currentData() is None else {self.chunk_combo.currentData()})
                 self._map_playback = map_playback(self._rom, entry.index, base, self._cache)
             render = self._map_playback.render(self._scene_tick)
-            self.viewport.set_dynamic_render(render)
+            self.viewport.set_dynamic_render(render,vertex_spans=self._map_playback.vertex_spans)
             self._current = entry, replace(old, render=render)
             if self._content_playback is not None and self.content_check.isChecked():
                 self._content = self._content_playback.render(self._scene_tick)
@@ -523,7 +523,9 @@ class ModelBrowserTab(QWidget):
         content, rows, missing = content_render(self._rom, entry.index, self._cache,
             night=night, models=self._content_models, capture=captured)
         progress("Preparing confirmed actor animations")
-        playback = content_playback(content, self._content_models, self._cache) if content else None
+        prop_entries = {row.type_id for row in rows if row.kind == "prop"}
+        playback = content_playback(content, self._content_models, self._cache,
+                                    prop_entries=prop_entries) if content else None
         actors = ActorPlayback(self._rom, captured, self._content_models) if content else None
         return content, rows, missing, captured, playback, actors
 

@@ -18,6 +18,8 @@ class PreparedTexture:
     wrap_s: str
     wrap_t: str
     mip_levels: tuple[tuple[int, int, bytes], ...] = ()
+    # Equal initial pixels can belong to different prop animation sequences.
+    animation_key: tuple | None = None
 
 
 @dataclass(frozen=True)

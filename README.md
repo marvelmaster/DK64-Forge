@@ -102,6 +102,8 @@ The **Models** tab groups **Characters** and **Other models**. Other models brow
 props, supports compatible actor-clip playback/animated GLB export, and prop texture frames.
 **Levels** adds map texture playback, placed setup props and actor/spawner meshes selected from the
 game's model tables; entries without a model use markers.
+ROM water surfaces appear automatically and animate with **Play**, including
+the river and pool in map 007 Japes. See [water rendering](docs/water-rendering.md).
 The viewport evaluates ROM combiner state with preview lighting; full runtime fidelity remains open.
 Details: [docs/models.md](docs/models.md).
 

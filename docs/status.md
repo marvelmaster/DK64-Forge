@@ -4,7 +4,37 @@
 
 ## Latest updates (2026-10-07)
 
-Final pre-push validation: full UI import passed and all **22 focused tests**
+Final validation for the water/placement update: **35 focused tests passed in
+34.783 seconds**, with the local ROM and offscreen Qt; none were skipped. The
+suites cover placement reloads and the 136-map audit, level clicks, water,
+animation switching, ROM-dialog behavior and workspace regressions. UI import
+also passed. The source trace, native water captures, scope and remaining limits
+are documented below and in [water rendering](water-rendering.md).
+
+- Fixed placed objects disappearing on the 007 Japes → 006 Japes Minecart → 007
+  return. Placement playback now scopes bindings to the current map and compares
+  animation behavior rather than internal provenance labels. Five targeted
+  regressions passed, including asynchronous switching and checkbox recovery;
+  see [level exploration](level-exploration.md).
+  Full-map verification additionally fixed distinct prop animation sequences
+  being merged because their initial pixels match. All 136 map entries now pass
+  placement loading and texture-playback setup with a shared cache (134 with
+  placements, two empty); Lighthouse's independent eye sequences are checked.
+
+- ROM water rendering: types 0, 3 and 6 now add 87 surfaces across 20 maps,
+  including Japes' four river sections and pool. Play advances source-derived
+  waves, alpha and texture scroll; current-view exports retain the displayed
+  state. Only animated vertex spans are uploaded. Eight water regressions and
+  six existing level-click checks passed; native river/pool captures and retained
+  GPU textures were checked. Other procedural material types and actor-driven
+  ripples remain open. See [water rendering](water-rendering.md).
+
+Earlier water-update validation: **30 focused tests passed** across water, level clicks,
+animation switching, ROM-dialog and workspace checks. Full UI import and
+`git diff --check` passed. The local workspace tests need `tests` on `PYTHONPATH`
+for their `qt_wait` helper; they passed after correcting that test invocation.
+
+Previous pre-push validation: full UI import passed and all **22 focused tests**
 (animation switching, ROM picker, level clicks and workspace regressions) passed
 in **25.019 seconds**, with offscreen Qt. Local ROM inputs were available and no
 checks in this run were skipped.

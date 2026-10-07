@@ -708,7 +708,7 @@ class ModelViewport(QOpenGLWidget):
         self._data = data
         self.update()
 
-    def set_dynamic_render(self, data, *, attachment=False):
+    def set_dynamic_render(self, data, *, attachment=False, vertex_spans=None):
         """Retain geometry buffers and unchanged GPU textures during level playback."""
         old = self._attachment_data if attachment else self._data
         if old is None or len(old.positions) != len(data.positions):
@@ -716,6 +716,34 @@ class ModelViewport(QOpenGLWidget):
         vertices = self._attachment_vertex_data if attachment else self._vertex_data
         buffer = self._attachment_vbo if attachment else self._vbo
         handles = self._attachment_textures if attachment else self._textures
+        if vertex_spans is not None:
+            # Map playback knows exactly which procedural vertices changed. Keep
+            # static terrain in its buffer instead of comparing/repacking it.
+            for first,end in vertex_spans:
+                if not 0 <= first <= end <= len(vertices):
+                    raise ValueError('Dynamic vertex span outside mesh')
+                vertices[first:end,:3] = data.positions[first:end]
+                vertices[first:end,3:5] = data.uvs[first:end]
+                vertices[first:end,5:9] = data.colors[first:end]
+                vertices[first:end,9:11] = (data.uvs1 or data.uvs)[first:end]
+            if self._program and not self._failed:
+                self.makeCurrent()
+                self._sync_textures(old,data,handles)
+                if buffer and vertex_spans:
+                    glBindBuffer(GL_ARRAY_BUFFER,buffer)
+                    for first,end in vertex_spans:
+                        changed = vertices[first:end]
+                        glBufferSubData(GL_ARRAY_BUFFER,first*vertices.strides[0],changed.nbytes,changed)
+                    glBindBuffer(GL_ARRAY_BUFFER,0)
+                self.doneCurrent()
+            if attachment:
+                self._attachment_data = data
+                if vertex_spans:
+                    self._dynamic_attachment = True
+            else:
+                self._data = data
+            self.update()
+            return
         color_changed = old.colors is not data.colors and not np.array_equal(old.colors, data.colors)
         if color_changed:
             vertices[:, 5:9] = np.asarray(data.colors, dtype=np.float32)

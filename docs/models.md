@@ -52,6 +52,13 @@ Both are drawn at their 12-bit y rotation, in rest pose with their first texture
 
 **Map geometry is drawn at 1/3 scale**, as the map loader `func_global_asm_80650ECC` does with `guScale(1/3)`, so maps and placements share world units. Map GLB exports are in these world units.
 
+Water surfaces load automatically from the map's separate ROM surface records.
+Play animates waves, alpha and scrolling texture layers; current-view export
+freezes the displayed surface. Types 0, 3 and 6 cover 87 surfaces in 20 maps,
+including all five surfaces in 007 Japes. Other procedural material types remain
+listed as unsupported. See [water rendering](water-rendering.md) for source
+evidence, validation and runtime limitations.
+
 The list records type, object ID and coordinates. Prop placement uses the scale → X → Y → Z → translation order from `8066C610`. Combined static GLB export includes the displayed content overlay. Placed prop texture frames advance with map playback; embedded part tracks remain explicitly selected in Other models.
 
 ## Rendering and data sources

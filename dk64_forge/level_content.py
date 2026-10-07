@@ -98,7 +98,8 @@ def placements(rom: bytes, map_id: int):
 
 
 def texture_signature(texture):
-    return (texture.width, texture.height, texture.rgba, texture.wrap_s, texture.wrap_t, texture.mip_levels)
+    return (texture.width, texture.height, texture.rgba, texture.wrap_s, texture.wrap_t,
+            texture.mip_levels, texture.animation_key)
 
 
 def merge_render(scenes, *, vertex_order=None):

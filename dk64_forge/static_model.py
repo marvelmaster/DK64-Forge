@@ -6,7 +6,7 @@ JFG-style PreparedRenderData contract. Used by the Models and Levels tabs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -29,6 +29,7 @@ class StaticModel:
     rigid_joints: tuple[int, ...] = ()
     texture_sources: tuple = ()
     normals: tuple = ()
+    water_bindings: tuple = ()
 
 
 class TextureCache:
@@ -147,6 +148,21 @@ def render_data(mesh: mesh_decoder.StaticMesh, cache: TextureCache, *, blends=No
                        tuple(source for source, index in texture_ids.items() if index is not None), tuple(normals))
 
 
+def _tag_prop_textures(model, animations, frame, tick):
+    textures = []
+    for texture, source in zip(model.render.textures, model.texture_sources):
+        candidates = [a for a in animations if a.table == source.table and
+                      a.image(frame if tick is None else tick // a.ticks_per_frame) == source.image]
+        key = None
+        if candidates:
+            a = candidates[0]
+            usage = source.usage
+            key = (a.table, a.frames, a.ticks_per_frame, a.interpolate,
+                   usage.fmt, usage.size, usage.width, usage.height, usage.interleaved, usage.palette)
+        textures.append(replace(texture, animation_key=key))
+    return replace(model, render=replace(model.render, textures=tuple(textures)))
+
+
 def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, tick: int | None = None, track: int | None = None, speed: int = 1, texture_playback: bool = True) -> StaticModel | None:
     data = texture_bank.table_entry(rom, 4, entry)
     if not data or len(data) < 0x50:
@@ -160,12 +176,14 @@ def prop_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, t
         from dataclasses import replace
         from .core import billboards
         model = render_data(billboards.decode(data, overrides), cache, blends=blends)
-        return replace(model, render=replace(model.render,
+        model = replace(model, render=replace(model.render,
                        batches=tuple(replace(batch, billboard_center=(0., 0., 0.)) for batch in model.render.batches)))
+        return _tag_prop_textures(model, animations, frame, texture_tick)
     rig = prop_animation.parse(data)
     matrices = rig.pose(track, tick or 0, speed) if rig else None
-    return render_data(mesh_decoder.decode(data, mesh_decoder.prop_ranges(data), rom=rom,
+    model = render_data(mesh_decoder.decode(data, mesh_decoder.prop_ranges(data), rom=rom,
                                          image_overrides=overrides, matrices=matrices), cache, blends=blends)
+    return _tag_prop_textures(model, animations, frame, texture_tick)
 
 
 MAP_SCALE = 1.0 / 3.0  # world units per map vertex unit (guScale in the map loader)
@@ -193,7 +211,38 @@ def map_model(rom: bytes, entry: int, cache: TextureCache, *, frame: int = 0, ti
     mesh.positions = [(x * MAP_SCALE, y * MAP_SCALE, z * MAP_SCALE) for x, y, z in mesh.positions]
     for effect in unsupported_effects:
         mesh.stats["unsupported"][f"Procedural effect {effect}"] = 1
-    return render_data(mesh, cache)
+    model = render_data(mesh, cache)
+    from .core import map_water
+    from .level_content import merge_render, texture_signature
+    surfaces = map_water.records(data)
+    selected = [s for s in surfaces if chunks is None or not s.chunks or set(s.chunks).intersection(chunks)]
+    supported = [s for s in selected if s.kind in map_water.SUPPORTED_TYPES]
+    for kind in {s.kind for s in selected if s.kind not in map_water.SUPPORTED_TYPES}:
+        model.unsupported[f'Procedural surface material {kind}'] = 1
+    if not supported:
+        return model
+    table = map_water.wave_table(rom)
+    models, bindings = [model], []
+    first = len(model.render.positions)
+    for surface in supported:
+        points = map_water.grid(surface)
+        water = render_data(map_water.mesh(surface, points, tick or 0, table), cache)
+        models.append(water)
+        bindings.append((surface, np.arange(first, first+len(water.render.positions)), points))
+        first += len(water.render.positions)
+    order = []
+    render = merge_render([m.render for m in models], vertex_order=order)
+    inverse = np.argsort(order)
+    bindings = [(surface, inverse[indices], points) for surface, indices, points in bindings]
+    source_by_texture = {texture_signature(t): source for m in models
+                         for t, source in zip(m.render.textures, m.texture_sources)}
+    return replace(model, render=render, triangles=sum(m.triangles for m in models),
+                   textured_triangles=sum(m.textured_triangles for m in models), textures=len(render.textures),
+                   missing_textures=sum(m.missing_textures for m in models),
+                   texture_sources=tuple(source_by_texture[texture_signature(t)] for t in render.textures),
+                   rigid_joints=tuple(np.asarray([j for m in models for j in m.rigid_joints])[order]),
+                   normals=tuple(tuple(n) for n in np.asarray([n for m in models for n in m.normals])[order]),
+                   water_bindings=tuple(bindings))
 
 
 def actor_conditional_mask(entry: int) -> int:

@@ -6,13 +6,27 @@ from .core import texture_bank, texture_animation
 
 
 class TexturePlayback:
-    def __init__(self, render, bindings, cache, *, map_id=None, scroll=(), mist=()):
+    def __init__(self, render, bindings, cache, *, map_id=None, scroll=(), mist=(), water=()):
         self.base = render
         self.bindings = bindings
         self.cache = cache
         self.map_id = map_id
         self.scroll = scroll
         self.mist = mist
+        self.water = water
+        dirty = set(i for _surface, indices, _points in water for i in indices)
+        dirty.update(i for first,count,*_rest in (*scroll,*mist) for i in range(first,first+count))
+        spans = []
+        for index in sorted(dirty):
+            index = int(index)
+            if spans and spans[-1][1] == index:
+                spans[-1] = (spans[-1][0],index+1)
+            else:
+                spans.append((index,index+1))
+        self.vertex_spans = tuple(spans)
+        if water:
+            from .core import map_water
+            self.water_table = map_water.wave_table(cache.rom)
         self.frames = {}
         self.last = render
         self.last_key = None
@@ -27,7 +41,7 @@ class TexturePlayback:
         origin = 0
         if self.scroll:
             origin = (-tick) % 256 if self.map_id != 187 else (0 if tick <= 0 else 255 - 2*((tick-1) % 128))
-        key += (origin, tick % 6656 if self.mist else 0)
+        key += (origin, tick % 6656 if self.mist else 0, tick if self.water else 0)
         if key == self.last_key:
             return self.last
         textures = list(self.base.textures)
@@ -77,7 +91,19 @@ class TexturePlayback:
                     u,v = uvs[vertex]; uvs[vertex] = (u,v-a/256.)
                     u,v = uvs1[vertex]; uvs1[vertex] = (u,v-b/256.)
             uvs, uvs1 = tuple(uvs), tuple(uvs1)
-        self.last = replace(self.base, textures=tuple(textures), batches=batches, uvs=uvs, uvs1=uvs1)
+        positions, colors = self.base.positions, self.base.colors
+        if self.water:
+            from .core import map_water
+            positions, colors, uvs, uvs1 = (list(values) for values in
+                (positions, colors, uvs, uvs1 or uvs))
+            for surface, indices, points in self.water:
+                p,c,uv,uv1 = map_water.sample(surface, points, tick, self.water_table)
+                for index, position, color, primary, secondary in zip(indices,p,c,uv,uv1):
+                    positions[index], colors[index] = tuple(position),tuple(color)
+                    uvs[index], uvs1[index] = tuple(primary),tuple(secondary)
+            positions,colors,uvs,uvs1 = map(tuple,(positions,colors,uvs,uvs1))
+        self.last = replace(self.base, textures=tuple(textures), batches=batches, uvs=uvs, uvs1=uvs1,
+                            positions=positions, colors=colors)
         self.last_key = key
         return self.last
 
@@ -108,20 +134,27 @@ def map_playback(rom, entry, model, cache):
         if (source.table == 25 and source.image == 0x1765 and batch.material.mux ==
                 (1,15,4,7,1,7,4,7,0,15,3,7,0,7,3,7)):
             scroll.append((batch.first_vertex, batch.vertex_count, source.usage.height))
-    return TexturePlayback(model.render, bindings, cache, map_id=entry, scroll=scroll, mist=mist)
+    return TexturePlayback(model.render, bindings, cache, map_id=entry, scroll=scroll, mist=mist,
+                           water=model.water_bindings)
 
 
-def content_playback(render, models, cache):
+def content_playback(render, models, cache, *, prop_entries):
     lookup = {level_content.texture_signature(t): t.texture_index for t in render.textures}
     bindings = {}
+    def signature(value):
+        source, animation = value
+        # Usage.user and descriptor key/group identify where a binding was
+        # found; they do not change its sampled pixels.
+        source = replace(source, usage=replace(source.usage, user=""))
+        return source, animation.frames, animation.ticks_per_frame, animation.table, animation.interpolate
     for (kind, entry, tick), model in models.items():
-        if kind != "prop" or tick != 0 or model is None:
+        if kind != "prop" or entry not in prop_entries or tick != 0 or model is None:
             continue
         data = texture_bank.table_entry(cache.rom, 4, entry)
         for index, binding in bindings_for(model, texture_animation.prop_animations(data)).items():
             target = lookup.get(level_content.texture_signature(model.render.textures[index]))
             if target is not None:
-                if target in bindings and bindings[target] != binding:
+                if target in bindings and signature(bindings[target]) != signature(binding):
                     raise ValueError("Ambiguous shared prop texture binding")
                 bindings[target] = binding
     return TexturePlayback(render, bindings, cache)
